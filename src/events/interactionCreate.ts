@@ -1,4 +1,13 @@
-import { ButtonInteraction, Events, Interaction, PermissionsBitField } from "discord.js";
+import {
+  ButtonInteraction,
+  Events,
+  Interaction,
+  PermissionsBitField,
+  EmbedBuilder,
+  ActionRowBuilder,
+  ButtonBuilder,
+  ButtonStyle,
+} from "discord.js";
 import { Event } from "../types/Event.js";
 import { captureError } from "../utils/error-reporter.js";
 import { notifyErrorLogChannel } from "../utils/error-log.js";
@@ -90,10 +99,33 @@ const event: Event<Events.InteractionCreate> = {
         meta: errorMeta,
         contextLabel: `command:${interaction.commandName}`,
       });
+
+      const embed = new EmbedBuilder()
+        .setTitle("Something went wrong")
+        .setDescription(
+          "We ran into an unexpected error while handling your request. Please contact the developers and share this error ID so we can investigate.\n\n" +
+            `Error ID: **${report.id}**`
+        )
+        .setColor(0xf04747);
+
+      const components: ActionRowBuilder<ButtonBuilder>[] = [];
+
+      if (context.config.devId) {
+        const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
+          new ButtonBuilder()
+            .setLabel("Contact Developer")
+            .setStyle(ButtonStyle.Link)
+            .setURL(`https://discord.com/users/${context.config.devId}`)
+        );
+        components.push(row);
+      }
+
+      const response = { embeds: [embed], components, ephemeral: true };
+
       if (interaction.deferred || interaction.replied) {
-        await interaction.editReply(report.userMessage);
+        await interaction.editReply(response);
       } else {
-        await interaction.reply({ content: report.userMessage, ephemeral: true });
+        await interaction.reply(response);
       }
     }
   },

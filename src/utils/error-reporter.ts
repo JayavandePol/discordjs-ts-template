@@ -30,11 +30,14 @@ export const captureError = async (
       name: "name" in payload ? payload.name : undefined,
       stack: "stack" in payload ? payload.stack : undefined,
       meta,
+      guildId: meta?.guildId,
+      userId: meta?.userId,
+      command: meta?.command,
     });
   }
 
   return {
     id,
-    userMessage: `Something went wrong (error ID: ${id}). The team has been notified.`,
+    userMessage: `An unexpected error occurred. Please report this ID to the support team: **${id}**`,
   };
 };

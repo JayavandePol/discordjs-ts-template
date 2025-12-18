@@ -6,10 +6,14 @@ export class ErrorModel extends Model<
 > {
   declare id: string;
   declare timestamp: Date;
+  declare severity: string;
   declare context: string;
   declare name: string | null;
   declare message: string;
   declare stack: string | null;
+  declare guildId: string | null;
+  declare userId: string | null;
+  declare command: string | null;
   declare meta: string | null;
 }
 
@@ -23,6 +27,11 @@ export const initErrorModel = (sequelize: Sequelize) => {
       timestamp: {
         type: DataTypes.DATE,
         allowNull: false,
+      },
+      severity: {
+        type: DataTypes.STRING,
+        allowNull: false,
+        defaultValue: "error",
       },
       context: {
         type: DataTypes.STRING,
@@ -38,6 +47,18 @@ export const initErrorModel = (sequelize: Sequelize) => {
       },
       stack: {
         type: DataTypes.TEXT,
+        allowNull: true,
+      },
+      guildId: {
+        type: DataTypes.STRING,
+        allowNull: true,
+      },
+      userId: {
+        type: DataTypes.STRING,
+        allowNull: true,
+      },
+      command: {
+        type: DataTypes.STRING,
         allowNull: true,
       },
       meta: {
