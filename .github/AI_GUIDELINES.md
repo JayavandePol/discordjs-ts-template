@@ -42,7 +42,10 @@ The project is a **Discord.js v14** bot built with **TypeScript** and **ES Modul
 When acting as a developer for this project, adopt the following mindset:
 
 ### 1. Problem Solving & Thinking Process
-*   **Scalability First**: Always assume the bot is in **50+ servers**. Avoid storing state in memory (variables/Maps) that needs to persist. Use the database.
+*   **Scalability First**:
+    *   **Sharding**: For 1000+ servers, the bot must be sharded. Use `src/sharding.ts` as the entry point instead of `src/index.ts`.
+    *   **Database**: Use **PostgreSQL** or **MySQL** for production. SQLite is only for development.
+    *   **State**: Never store state in memory (variables/Maps) that needs to persist. Use the database.
 *   **Traceability**: Every error must be traceable. Never swallow errors. Always use `captureError` to generate an ID.
 *   **User Experience**:
     *   Errors should be friendly to the user (Embeds with "Contact Developer" buttons).
