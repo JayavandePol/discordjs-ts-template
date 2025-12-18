@@ -1,5 +1,6 @@
 import { EmbedBuilder, SlashCommandBuilder } from "discord.js";
 import { captureError } from "../../utils/error-reporter.js";
+import { notifyErrorLogChannel } from "../../utils/error-log.js";
 import { Command } from "../../types/Command.js";
 import { ErrorMeta } from "../../types/ErrorMeta.js";
 
@@ -43,6 +44,11 @@ const command: Command = {
         command: "errors test",
       };
       const report = await captureError(logger, syntheticError, "manual-test", errorStore, meta);
+      await notifyErrorLogChannel(context, {
+        report,
+        meta,
+        contextLabel: "manual-test",
+      });
       await interaction.reply({
         content: `Logged test error with ID: ${report.id}`,
         ephemeral: true,
