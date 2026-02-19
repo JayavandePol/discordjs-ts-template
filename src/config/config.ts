@@ -8,6 +8,7 @@ export type Config = {
   devId?: string;
   multiGuild: boolean;
   errorLogChannelId?: string;
+  supportUrl?: string;
   database: {
     enabled: boolean;
     url?: string;
@@ -51,6 +52,7 @@ export const loadConfig = (): Config => {
     devId: process.env.DEV_ID,
     multiGuild: boolFromString(process.env.MULTI_GUILD),
     errorLogChannelId: process.env.ERRORLOGCHANNEL_ID,
+    supportUrl: process.env.SUPPORT_URL,
     database: {
       enabled: dbEnabled,
       url: databaseUrl,

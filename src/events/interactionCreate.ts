@@ -4,14 +4,9 @@ import {
   Interaction,
   PermissionsBitField,
   EmbedBuilder,
-  ActionRowBuilder,
-  ButtonBuilder,
-  ButtonStyle,
 } from "discord.js";
 import { Event } from "../types/Event.js";
-import { captureError } from "../utils/error-reporter.js";
-import { notifyErrorLogChannel } from "../utils/error-log.js";
-import { ErrorMeta } from "../types/ErrorMeta.js";
+import { handleInteractionError } from "../utils/error-handler.js";
 
 const event: Event<Events.InteractionCreate> = {
   name: Events.InteractionCreate,
@@ -42,7 +37,15 @@ const event: Event<Events.InteractionCreate> = {
         });
         return;
       }
-      if (interaction.user.id !== devId) {
+      if (!interaction.inCachedGuild()) {
+        await interaction.reply({
+          content: "Developer commands can only be used inside a guild.",
+          ephemeral: true,
+        });
+        return;
+      }
+      const hasDevRole = interaction.member.roles.cache.has(devId);
+      if (!hasDevRole) {
         logger.warn("Unauthorized dev-only command attempt", {
           user: interaction.user.id,
           command: command.data.name,
@@ -77,56 +80,10 @@ const event: Event<Events.InteractionCreate> = {
       }
     }
 
-    const errorMeta: ErrorMeta = {
-      userId: interaction.user.id,
-      guildId: interaction.guildId ?? undefined,
-      channelId: interaction.channelId,
-      command: interaction.commandName,
-    };
-
     try {
       await command.execute(interaction, context);
     } catch (error) {
-      const report = await captureError(
-        logger,
-        error,
-        `command:${interaction.commandName}`,
-        context.errorStore,
-        errorMeta
-      );
-      await notifyErrorLogChannel(context, {
-        report,
-        meta: errorMeta,
-        contextLabel: `command:${interaction.commandName}`,
-      });
-
-      const embed = new EmbedBuilder()
-        .setTitle("Something went wrong")
-        .setDescription(
-          "We ran into an unexpected error while handling your request. Please contact the developers and share this error ID so we can investigate.\n\n" +
-            `Error ID: **${report.id}**`
-        )
-        .setColor(0xf04747);
-
-      const components: ActionRowBuilder<ButtonBuilder>[] = [];
-
-      if (context.config.devId) {
-        const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
-          new ButtonBuilder()
-            .setLabel("Contact Developer")
-            .setStyle(ButtonStyle.Link)
-            .setURL(`https://discord.com/users/${context.config.devId}`)
-        );
-        components.push(row);
-      }
-
-      const response = { embeds: [embed], components, ephemeral: true };
-
-      if (interaction.deferred || interaction.replied) {
-        await interaction.editReply(response);
-      } else {
-        await interaction.reply(response);
-      }
+      await handleInteractionError(interaction, context, error, `command:${interaction.commandName}`);
     }
   },
 };
@@ -157,7 +114,7 @@ const handleErrorInfoButton = async (
   const meta = record.meta ?? {};
   const devId = config.devId;
   const isOwner = meta.userId === interaction.user.id;
-  const isDev = devId && interaction.user.id === devId;
+  const isDev = devId && interaction.inCachedGuild() && interaction.member.roles.cache.has(devId);
   if (!isOwner && !isDev) {
     await interaction.reply({
       content: "You are not allowed to view this error's details.",
@@ -166,7 +123,7 @@ const handleErrorInfoButton = async (
     return;
   }
 
-  const description = [
+  const fields = [
     `**Context:** ${record.context}`,
     `**User:** ${meta.userId ? `<@${meta.userId}>` : "Unknown"}`,
     `**Guild:** ${meta.guildId ?? "DM/Unknown"}`,
@@ -175,15 +132,21 @@ const handleErrorInfoButton = async (
   ];
 
   if (record.stack) {
-    description.push("\n**Stack:**");
-    description.push("```");
-    description.push(record.stack.slice(0, 1500));
-    description.push("```");
+    fields.push("\n**Stack:**");
+    fields.push("```");
+    fields.push(record.stack.slice(0, 1500));
+    fields.push("```");
   }
+
+  const embed = new EmbedBuilder()
+    .setTitle(`Error ${record.id}`)
+    .setDescription(fields.join("\n"))
+    .setColor(0xf04747)
+    .setTimestamp(new Date(record.timestamp));
 
   try {
     await interaction.reply({
-      content: description.join("\n"),
+      embeds: [embed],
       ephemeral: true,
     });
   } catch (err) {

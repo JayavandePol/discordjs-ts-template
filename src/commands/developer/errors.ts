@@ -1,14 +1,9 @@
 import {
-  ActionRowBuilder,
-  ButtonBuilder,
-  ButtonStyle,
   EmbedBuilder,
   SlashCommandBuilder,
 } from "discord.js";
-import { captureError } from "../../utils/error-reporter.js";
-import { notifyErrorLogChannel } from "../../utils/error-log.js";
 import { Command } from "../../types/Command.js";
-import { ErrorMeta } from "../../types/ErrorMeta.js";
+import { handleInteractionError } from "../../utils/error-handler.js";
 
 const truncate = (value: string, max = 200) =>
   value.length > max ? `${value.slice(0, max - 3)}...` : value;
@@ -30,7 +25,7 @@ const command: Command = {
     ),
   access: "developer",
   async execute(interaction, context) {
-    const { errorStore, logger } = context;
+    const { errorStore } = context;
     if (!errorStore) {
       await interaction.reply({
         content: "Database is disabled; error tooling unavailable.",
@@ -43,44 +38,7 @@ const command: Command = {
 
     if (sub === "test") {
       const syntheticError = new Error("Synthetic error from /errors test");
-      const meta: ErrorMeta = {
-        userId: interaction.user.id,
-        guildId: interaction.guildId ?? undefined,
-        channelId: interaction.channelId,
-        command: "errors test",
-      };
-      const report = await captureError(logger, syntheticError, "manual-test", errorStore, meta);
-      await notifyErrorLogChannel(context, {
-        report,
-        meta,
-        contextLabel: "manual-test",
-      });
-
-      const embed = new EmbedBuilder()
-        .setTitle("Something went wrong")
-        .setDescription(
-          "We ran into an unexpected error while handling your request. Please contact the developers and share this error ID so we can investigate.\n\n" +
-            `Error ID: **${report.id}**`
-        )
-        .setColor(0xf04747);
-
-      const components: ActionRowBuilder<ButtonBuilder>[] = [];
-
-      if (context.config.devId) {
-        const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
-          new ButtonBuilder()
-            .setLabel("Contact Developer")
-            .setStyle(ButtonStyle.Link)
-            .setURL(`https://discord.com/users/${context.config.devId}`)
-        );
-        components.push(row);
-      }
-
-      await interaction.reply({
-        embeds: [embed],
-        components,
-        ephemeral: true,
-      });
+      await handleInteractionError(interaction, context, syntheticError, "manual-test");
       return;
     }
 
