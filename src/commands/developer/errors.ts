@@ -54,27 +54,17 @@ const command: Command = {
         .setTitle(`Error ${record.id}`)
         .setColor(0xf04747)
         .addFields(
-          { name: "Context", value: record.context, inline: true },
+          { name: "First Context", value: record.context, inline: true },
+          { name: "Severity", value: record.severity, inline: true },
+          { name: "Occurrences", value: record.occurrences.toString(), inline: true },
+          { name: "User", value: record.meta?.userId ? `<@${record.meta.userId}>` : "Unknown", inline: true },
+          { name: "Guild", value: (record.meta?.guildId as string) ?? "N/A", inline: true },
+          { name: "Channel", value: record.meta?.channelId ? `<#${record.meta.channelId}>` : "N/A", inline: true },
+          { name: "Command/Custom ID", value: record.meta?.command ?? "N/A", inline: true },
           { name: "Timestamp", value: new Date(record.timestamp).toUTCString(), inline: true },
           { name: "Name", value: record.name ?? "Unknown", inline: true },
           { name: "Message", value: truncate(record.message, 400) || "None", inline: false }
         );
-
-      if (record.meta) {
-        embed.addFields(
-          { name: "Guild", value: (record.meta.guildId as string) ?? "N/A", inline: true },
-          {
-            name: "User",
-            value: record.meta.userId ? `<@${record.meta.userId}>` : "N/A",
-            inline: true,
-          },
-          {
-            name: "Channel",
-            value: record.meta.channelId ? `<#${record.meta.channelId}>` : "N/A",
-            inline: true,
-          }
-        );
-      }
 
       if (record.stack) {
         embed.addFields({ name: "Stack", value: truncate(record.stack, 500) });

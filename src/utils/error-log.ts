@@ -23,12 +23,44 @@ const isSendableChannel = (
   );
 };
 
+// Map of ErrorID -> [Count, FirstSeenTimestamp]
+const throttleMap = new Map<string, { count: number; timestamp: number }>();
+const THROTTLE_LIMIT = 5;
+const THROTTLE_WINDOW_MS = 60 * 1000; // 60 seconds
+
 export const notifyErrorLogChannel = async (
   context: BotContext,
   params: { report: ErrorReport; meta?: ErrorMeta; contextLabel: string }
 ) => {
   const channelId = context.config.errorLogChannelId;
   if (!channelId) return;
+
+  const now = Date.now();
+  const throttleRecord = throttleMap.get(params.report.id);
+
+  if (throttleRecord) {
+    if (now - throttleRecord.timestamp < THROTTLE_WINDOW_MS) {
+      throttleRecord.count++;
+      if (throttleRecord.count > THROTTLE_LIMIT) {
+        context.logger.warn(`Throttled error log to Discord channel for ID ${params.report.id} (seen ${throttleRecord.count} times in 60s)`);
+        return; // Suppress the channel message
+      }
+    } else {
+      // Reset window
+      throttleMap.set(params.report.id, { count: 1, timestamp: now });
+    }
+  } else {
+    throttleMap.set(params.report.id, { count: 1, timestamp: now });
+  }
+
+  // Cleanup old entries randomly (10% chance) to prevent memory leak
+  if (Math.random() < 0.1) {
+    for (const [key, value] of throttleMap.entries()) {
+      if (now - value.timestamp > THROTTLE_WINDOW_MS) {
+        throttleMap.delete(key);
+      }
+    }
+  }
 
   try {
     const channel = await context.client.channels.fetch(channelId);

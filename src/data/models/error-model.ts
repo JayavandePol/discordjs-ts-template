@@ -15,6 +15,7 @@ export class ErrorModel extends Model<
   declare userId: string | null;
   declare command: string | null;
   declare meta: string | null;
+  declare occurrences: number;
 }
 
 export const initErrorModel = (sequelize: Sequelize) => {
@@ -65,6 +66,11 @@ export const initErrorModel = (sequelize: Sequelize) => {
         type: DataTypes.TEXT,
         allowNull: true,
       },
+      occurrences: {
+        type: DataTypes.INTEGER,
+        allowNull: false,
+        defaultValue: 1,
+      }
     },
     {
       sequelize,

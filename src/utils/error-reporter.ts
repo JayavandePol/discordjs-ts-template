@@ -1,5 +1,5 @@
 import { Logger } from "./logger.js";
-import { createErrorId } from "./id.js";
+import { generateErrorHash, cleanStackTrace } from "./id.js";
 import { ErrorStore } from "../data/error-store.js";
 import { ErrorMeta } from "../types/ErrorMeta.js";
 
@@ -15,10 +15,10 @@ export const captureError = async (
   errorStore?: ErrorStore,
   meta?: ErrorMeta
 ): Promise<ErrorReport> => {
-  const id = createErrorId();
+  const id = generateErrorHash(error, context);
   const payload =
     error instanceof Error
-      ? { name: error.name, message: error.message, stack: error.stack }
+      ? { name: error.name, message: error.message, stack: error.stack ? cleanStackTrace(error.stack) : undefined }
       : { message: String(error) };
 
   logger.error(`Error captured (${context})`, { id, meta, ...payload });

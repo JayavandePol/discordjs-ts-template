@@ -56,12 +56,46 @@ export const handleInteractionError = async (
     contextLabel: string,
     meta?: ErrorMeta
 ): Promise<void> => {
+    const options: Record<string, string | number | boolean> = {};
+
+    if (interaction.isChatInputCommand() && interaction.options.data) {
+        for (const opt of interaction.options.data) {
+            if (opt.value !== undefined) {
+                options[opt.name] = opt.value;
+            }
+        }
+    } else if (interaction.isModalSubmit()) {
+        for (const [key, field] of interaction.fields.fields) {
+            if ("value" in field) {
+                options[key] = field.value;
+            }
+        }
+    }
+
     const errorMeta: ErrorMeta = meta ?? {
         userId: interaction.user.id,
         guildId: interaction.guildId ?? undefined,
         channelId: interaction.channelId ?? undefined,
         command: "commandName" in interaction ? interaction.commandName : undefined,
+        options: Object.keys(options).length > 0 ? options : undefined,
     };
+
+    if (error && typeof error === "object" && "name" in error && error.name === "UserError") {
+        const message = "message" in error ? String(error.message) : "An expected error occurred.";
+
+        const response = {
+            embeds: [new EmbedBuilder().setTitle("Notice").setDescription(message).setColor(0xeeb902)],
+            ephemeral: true
+        };
+
+        try {
+            if (interaction.deferred || interaction.replied) await interaction.editReply(response);
+            else await interaction.reply(response);
+        } catch (replyError) {
+            context.logger.error("Failed to send UserError response", replyError);
+        }
+        return;
+    }
 
     const report = await captureError(
         context.logger,
