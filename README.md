@@ -77,10 +77,11 @@ Then rerun the register script or restart the bot (auto-registers on startup).
 
 ## Error handling
 - Errors in slash commands are caught automatically by the central handler — no boilerplate needed.
-- For buttons, select menus, modals, or partial failures, use `handleInteractionError()` from `src/utils/error-handler.ts`.
-- Errors are captured with a UUID and logged as JSON including stack trace.
-- When DB is enabled, errors are persisted via Sequelize for lookup (with user/guild/channel metadata).
+- Throw a `UserError` from `src/utils/user-error.ts` for expected validation/permission failures. This will politely reply to the user without spamming error logs or creating an error ID.
+- Real system crashes are captured with a **deterministic Error ID hash** based on the stack trace. The exact same crash always gets the exact same ID.
+- Errors are persisted via Sequelize for lookup. If the same crash happens again, it UPSERTs the DB row and simply increments the `occurrences` count instead of duplicating rows.
+- Unnecessary Node.js internals and `node_modules` lines are automatically stripped from the stack trace for readability.
+- Slash Command options and Modal form inputs are automatically captured into the error `meta` so you know exactly what the user typed.
 - Users see a rich error embed with the Error ID and a "Contact Developer" button.
-- If `ERRORLOGCHANNEL_ID` is set, the bot posts an embed to that channel with a Details button.
-- Dev-only `/errors` command lets you create a test record or look up by ID.
-- Logs live at `logs/YYYY-MM-DD.log` for easy correlation.
+- The bot posts an embed to `ERRORLOGCHANNEL_ID` with a Details button. If the exact same crash happens >5 times in 60s, it temporarily suppresses the channel embed to prevent massive spam.
+- Dev-only `/errors lookup <id>` command lets you view the full trace, inputs, and occurrences.

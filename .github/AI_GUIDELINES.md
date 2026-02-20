@@ -278,7 +278,16 @@ To ensure generated code works perfectly without modification, please follow the
         ```
 
 10. **Error Handling (CRITICAL)**:
-    *   **Central handler for slash commands**: The `interactionCreate.ts` event handler wraps every command execution in `try/catch`. If your command throws, the user automatically gets a friendly error embed with an Error ID and Contact Developer button. **You don't need to add error handling to most commands.**
+    *   **User Errors vs System Crashes**: Not all errors are bugs. If a user tries to do something invalid (e.g. insufficient funds, lacking permissions), throw a `UserError`.
+        ```typescript
+        import { UserError } from "../utils/user-error.js";
+        
+        if (balance < 100) {
+            throw new UserError("You do not have enough funds.");
+        }
+        ```
+        The bot will politely reply to the user. **It will not log an error ID or send an alert to the developers.**
+    *   **Central handler for slash commands**: The `interactionCreate.ts` event handler wraps every command execution in `try/catch`. If your command throws a normal `Error`, the user gets a friendly error embed with an Error ID and Contact Developer button. **You don't need to add error handling to most commands.**
     *   **For buttons, select menus, modals, and partial failures**, use the universal `handleInteractionError` utility:
         ```typescript
         import { handleInteractionError } from "../utils/error-handler.js";
@@ -297,13 +306,13 @@ To ensure generated code works perfectly without modification, please follow the
         *   `"button:confirm-purchase"` — button handler error
         *   `"modal:submit-report"` — modal handler error
         *   `"select:choose-role"` — select menu error
-    *   `handleInteractionError` does everything in one call:
-        1. Captures the error with a UUID
-        2. Stores it in the database
-        3. Notifies the error log channel
-        4. Replies to the user with an embed + "Contact Developer" button
-        5. Handles deferred/replied interaction state automatically
-        6. Won't crash the bot if the reply itself fails
+    *   `handleInteractionError` does heavy lifting automatically:
+        1. **Deterministic IDs**: Generates an 8-char hash of the clean stack trace. The exact same crash always gets the exact same ID.
+        2. **Deduplication**: UPSERTs the DB row to simply increment the `occurrences` count instead of making duplicate rows.
+        3. **Input Capture**: Automatically logs Slash Command options and Modal form inputs so you know what the user typed.
+        4. **Clean Stacks**: Strips out `node_modules` and Node internals so you only see your own code paths.
+        5. **Throttling**: If the same crash happens >5 times in 60s, it temporarily suspends sending embeds to the `ERRORLOGCHANNEL_ID` to prevent spam.
+        6. Replies to the user with an embed + "Contact Developer" button (and handles deferred interaction states).
 
 ## Extending the Bot
 
