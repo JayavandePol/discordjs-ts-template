@@ -1,5 +1,4 @@
-import { Op } from "sequelize";
-import { ErrorModel } from "./models/error-model.js";
+import { PrismaClient, Prisma } from "@prisma/client";
 import { ErrorMeta } from "../types/ErrorMeta.js";
 
 export type ErrorRecord = {
@@ -18,55 +17,51 @@ export type ErrorRecord = {
 };
 
 export class ErrorStore {
-  constructor(private model: typeof ErrorModel) { }
+  constructor(private prisma: PrismaClient) { }
 
   async recordError(payload: Omit<ErrorRecord, "timestamp" | "severity" | "occurrences"> & { timestamp?: string; severity?: string }) {
     const timestamp = payload.timestamp ?? new Date().toISOString();
     const severity = payload.severity ?? "error";
-    const metaString =
-      payload.meta === undefined
-        ? null
-        : typeof payload.meta === "string"
-          ? payload.meta
-          : JSON.stringify(payload.meta);
+    const meta = payload.meta ?? null;
 
-    // Using findOne + update/create to support SQLite easily without complex UPSERT queries
-    const existing = await this.model.findByPk(payload.id);
-
-    if (existing) {
-      await existing.update({
-        timestamp: new Date(timestamp),
-        occurrences: existing.occurrences + 1,
-        meta: metaString, // update with latest context
-        userId: payload.userId ?? existing.userId,
-        guildId: payload.guildId ?? existing.guildId,
-        command: payload.command ?? existing.command,
-        context: payload.context,
-      });
-    } else {
-      await this.model.create({
-        ...payload,
+    await this.prisma.errorEntry.upsert({
+      where: { id: payload.id },
+      create: {
+        id: payload.id,
         timestamp: new Date(timestamp),
         severity,
-        meta: metaString,
+        context: payload.context,
+        name: payload.name ?? null,
+        message: payload.message,
+        stack: payload.stack ?? null,
         guildId: payload.guildId ?? null,
         userId: payload.userId ?? null,
         command: payload.command ?? null,
+        meta,
         occurrences: 1,
-      });
-    }
+      },
+      update: {
+        timestamp: new Date(timestamp),
+        occurrences: { increment: 1 },
+        meta,
+        userId: payload.userId ?? undefined,
+        guildId: payload.guildId ?? undefined,
+        command: payload.command ?? undefined,
+        context: payload.context,
+      },
+    });
   }
 
   async getById(id: string): Promise<ErrorRecord | null> {
-    const row = await this.model.findByPk(id);
+    const row = await this.prisma.errorEntry.findUnique({ where: { id } });
     if (!row) return null;
     return this.hydrate(row);
   }
 
   async listLatest(limit = 10): Promise<ErrorRecord[]> {
-    const rows = await this.model.findAll({
-      order: [["timestamp", "DESC"]],
-      limit,
+    const rows = await this.prisma.errorEntry.findMany({
+      orderBy: { timestamp: "desc" },
+      take: limit,
     });
     return rows.map((row) => this.hydrate(row));
   }
@@ -74,16 +69,17 @@ export class ErrorStore {
   async prune(days: number): Promise<number> {
     const cutoff = new Date();
     cutoff.setDate(cutoff.getDate() - days);
-    return await this.model.destroy({
+    const result = await this.prisma.errorEntry.deleteMany({
       where: {
         timestamp: {
-          [Op.lt]: cutoff,
+          lt: cutoff,
         },
       },
     });
+    return result.count;
   }
 
-  private hydrate(row: ErrorModel): ErrorRecord {
+  private hydrate(row: Prisma.ErrorEntryGetPayload<{}>): ErrorRecord {
     return {
       id: row.id,
       timestamp: row.timestamp.toISOString(),
@@ -95,16 +91,8 @@ export class ErrorStore {
       guildId: row.guildId ?? undefined,
       userId: row.userId ?? undefined,
       command: row.command ?? undefined,
-      meta: row.meta ? (this.safeJson(row.meta) as ErrorMeta) : undefined,
+      meta: row.meta ? (row.meta as ErrorMeta) : undefined,
       occurrences: row.occurrences,
     };
-  }
-
-  private safeJson(value: string) {
-    try {
-      return JSON.parse(value);
-    } catch {
-      return value;
-    }
   }
 }

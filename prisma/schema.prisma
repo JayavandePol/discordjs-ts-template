@@ -1,0 +1,25 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model ErrorEntry {
+  id          String   @id
+  timestamp   DateTime
+  severity    String   @default("error")
+  context     String
+  name        String?
+  message     String
+  stack       String?
+  guildId     String?
+  userId      String?
+  command     String?
+  meta        Json?
+  occurrences Int      @default(1)
+
+  @@map("errors")
+}
