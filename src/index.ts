@@ -5,7 +5,7 @@ import { registerEvents } from "./core/event-registry.js";
 import { BotContext } from "./types/Context.js";
 import { Logger } from "./utils/logger.js";
 import { captureError } from "./utils/error-reporter.js";
-import { initPrisma } from "./data/prisma.js";
+import { initDatabase, DatabaseConnection } from "./data/db.js";
 import { ErrorStore } from "./data/error-store.js";
 import { CooldownManager } from "./utils/cooldown-manager.js";
 
@@ -23,14 +23,13 @@ const client = new Client({
 // 4. Load all command files from src/commands recursively
 const commands = await loadCommands(logger);
 
-// 5. Initialize optional database connection via Prisma
-const prisma = initPrisma(config, logger);
+// 5. Initialize multi-dialect Drizzle ORM database connection (SQLite, PostgreSQL, MySQL/MariaDB)
+const dbConnection: DatabaseConnection | null = await initDatabase(config, logger);
 let errorStore: ErrorStore | undefined;
 
-if (prisma) {
-  await prisma.$connect();
-  errorStore = new ErrorStore(prisma);
-  logger.info("Database connected.");
+if (dbConnection) {
+  errorStore = new ErrorStore(dbConnection);
+  logger.info(`Database connected successfully using ${dbConnection.dialect.toUpperCase()}.`);
 }
 
 // 6. Initialize in-memory cooldown tracking manager
@@ -54,12 +53,13 @@ const shutdown = async (reason: string, error?: unknown) => {
     logger.error("Failed to close Discord client", { error: closeError });
   }
 
-  // Disconnect database client gracefully
-  if (prisma) {
+  // Close database connection gracefully
+  if (dbConnection) {
     try {
-      await prisma.$disconnect();
+      await dbConnection.close();
+      logger.info("Database connection closed.");
     } catch (closeError) {
-      logger.error("Failed to disconnect Prisma", { error: closeError });
+      logger.error("Failed to close database connection", { error: closeError });
     }
   }
 

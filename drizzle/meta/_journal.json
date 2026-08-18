@@ -1,0 +1,13 @@
+{
+  "version": "7",
+  "dialect": "sqlite",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "6",
+      "when": 1787035332056,
+      "tag": "0000_zippy_monster_badoon",
+      "breakpoints": true
+    }
+  ]
+}

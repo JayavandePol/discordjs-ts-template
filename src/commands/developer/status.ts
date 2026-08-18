@@ -1,5 +1,6 @@
 import { EmbedBuilder, SlashCommandBuilder } from "discord.js";
 import { Command } from "../../types/Command.js";
+import { detectDialect } from "../../data/db.js";
 
 // Helper function to summarize database connection state for diagnostics
 const summarizeDatabase = (config: {
@@ -9,8 +10,10 @@ const summarizeDatabase = (config: {
   logging: boolean;
 }) => {
   if (!config.enabled) return "Disabled";
-  if (config.url) return `Enabled (via DATABASE_URL)`;
-  return `Enabled (SQLite @ ${config.storage ?? "./data/database.sqlite"})`;
+  const dialect = detectDialect({ database: config } as any);
+  if (dialect === "postgres") return "Enabled (Drizzle ORM @ PostgreSQL)";
+  if (dialect === "mysql") return "Enabled (Drizzle ORM @ MySQL/MariaDB)";
+  return `Enabled (Drizzle ORM @ SQLite: ${config.storage ?? "./data/database.sqlite"})`;
 };
 
 // Developer status command to inspect environment, memory, latency, and guild counts

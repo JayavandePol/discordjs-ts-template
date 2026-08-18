@@ -9,20 +9,25 @@
     "build": "tsc",
     "start": "node dist/index.js",
     "lint": "tsc --noEmit",
-    "prisma:generate": "prisma generate",
-    "prisma:migrate": "prisma migrate dev --name init",
+    "db:push": "drizzle-kit push",
+    "db:generate": "drizzle-kit generate",
+    "db:studio": "drizzle-kit studio",
     "register:global": "tsx src/scripts/register-commands.ts --scope global",
     "register:guild": "tsx src/scripts/register-commands.ts --scope guild"
   },
   "dependencies": {
-    "@prisma/client": "^6.19.3",
+    "better-sqlite3": "^13.0.3",
     "discord.js": "^14.26.4",
     "dotenv": "^17.4.2",
+    "drizzle-orm": "^0.45.2",
+    "mysql2": "^3.23.3",
+    "postgres": "^3.4.9",
     "zod": "^4.4.3"
   },
   "devDependencies": {
+    "@types/better-sqlite3": "^9.6.0",
     "@types/node": "^25.9.1",
-    "prisma": "^6.19.3",
+    "drizzle-kit": "^0.31.10",
     "tsx": "^4.23.12",
     "typescript": "^6.0.3"
   }

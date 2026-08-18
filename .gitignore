@@ -1,27 +1,32 @@
-# gitignore file
+# Environment files
 .env
+.env.*
+*.env
+
+# SQLite Databases & Local Data Directory (Root only)
+/data/
+*.sqlite
+*.sqlite-journal
+*.sqlite-wal
+*.sqlite-shm
 database.sqlite
+
+# Dependencies & Build Output
 node_modules/
 dist/
+.build/
+*.tsbuildinfo
+
+# Logs
 logs/
 *.log
-.DS_Store
-.vscode/
 npm-debug.log*
 yarn-error.log*
 .pnpm-debug.log*
+
+# IDE & OS
+.DS_Store
+.vscode/
 .idea/
 coverage/
-.env.local
-.env.development.local
-.env.test.local
-.env.production.local
 .cache/
-.next/
-out/
-.build/
-.svelte-kit/
-*.tsbuildinfo
-.vite/
-*.env
-*.sqlite
