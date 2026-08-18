@@ -4,10 +4,14 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { Command } from "../types/Command.js";
 import { Logger } from "../utils/logger.js";
 
+// Resolve directory name in ESM
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+
+// Filter out non-command files, declaration maps, and test definitions
 const isCommandFile = (file: string) =>
   (file.endsWith(".ts") || file.endsWith(".js")) && !file.endsWith(".d.ts");
 
+// Recursively traverse directory tree to discover all command files
 const collectFiles = async (dir: string): Promise<string[]> => {
   const entries = await fs.readdir(dir, { withFileTypes: true });
   const files: string[] = [];
@@ -22,6 +26,7 @@ const collectFiles = async (dir: string): Promise<string[]> => {
   return files;
 };
 
+// Derive default access level from directory structure (e.g., commands/developer/* => "developer")
 const deriveAccess = (relativePath: string): Command["access"] => {
   const segments = relativePath.split(path.sep);
   if (segments.includes("developer")) return "developer";
@@ -29,6 +34,9 @@ const deriveAccess = (relativePath: string): Command["access"] => {
   return "public";
 };
 
+/**
+ * Dynamically imports and registers all slash command modules from the commands directory.
+ */
 export const loadCommands = async (logger: Logger): Promise<Map<string, Command>> => {
   const commands = new Map<string, Command>();
   const commandsPath = path.resolve(__dirname, "../commands");
@@ -39,13 +47,17 @@ export const loadCommands = async (logger: Logger): Promise<Map<string, Command>
     const url = pathToFileURL(file).href;
     const module = await import(url);
     const command: Command | undefined = module.default;
+
     if (!command) {
       logger.warn("Skipped command without default export", { file: rel });
       continue;
     }
+
+    // Set derived access if not explicitly defined on the command
     const derivedAccess = deriveAccess(rel);
     command.access = command.access ?? derivedAccess;
     command.devOnly = command.devOnly ?? command.access === "developer";
+
     commands.set(command.data.name, command);
     logger.debug("Loaded command", { name: command.data.name, file: rel, access: command.access });
   }

@@ -6,10 +6,14 @@ import { Event } from "../types/Event.js";
 import { BotContext } from "../types/Context.js";
 import { Logger } from "../utils/logger.js";
 
+// Resolve directory name in ESM
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+
+// Filter out non-event files
 const isEventFile = (file: string) =>
   (file.endsWith(".ts") || file.endsWith(".js")) && !file.endsWith(".d.ts");
 
+// Recursively traverse directory to find all event handler files
 const collectFiles = async (dir: string): Promise<string[]> => {
   const entries = await fs.readdir(dir, { withFileTypes: true });
   const files: string[] = [];
@@ -24,6 +28,9 @@ const collectFiles = async (dir: string): Promise<string[]> => {
   return files;
 };
 
+/**
+ * Dynamically loads and attaches all event listener modules located in src/events.
+ */
 export const registerEvents = async (
   client: Client,
   context: BotContext,
@@ -37,11 +44,13 @@ export const registerEvents = async (
     const url = pathToFileURL(file).href;
     const module = await import(url);
     const event: Event | undefined = module.default;
+
     if (!event) {
       logger.warn("Skipped event without default export", { file: rel });
       continue;
     }
 
+    // Wrap execution with the global context parameter
     const handler = (...args: unknown[]) => event.execute(...(args as []), context);
     if (event.once) {
       client.once(event.name, handler);

@@ -8,6 +8,7 @@ import {
 
 type ScopeArg = RegistrationScope | "auto";
 
+// Parses CLI arguments for target registration scope (--scope=guild or --scope=global)
 const parseScope = (): ScopeArg => {
   const arg = process.argv.find((part) => part === "--scope" || part.startsWith("--scope="));
   if (!arg) return "auto";
@@ -19,17 +20,20 @@ const parseScope = (): ScopeArg => {
   return (value as ScopeArg) ?? "auto";
 };
 
+// 1. Initialize config and logger
 const config = loadConfig();
 const logger = new Logger(config.logLevel);
 const scope = parseScope();
 
+// 2. Discover all local slash command files
 const commands = await loadCommands(logger);
 
 const override = scope === "auto" ? undefined : scope;
 
+// 3. Publish to Discord REST API
 try {
   await registerApplicationCommands(commands, config, logger, override);
 } catch (error) {
-  logger.error("Failed to register commands", error);
+  logger.error("Failed to register application commands", error);
   process.exitCode = 1;
 }
