@@ -1,30 +1,43 @@
 import {
   ChatInputCommandInteraction,
+  ContextMenuCommandInteraction,
+  UserContextMenuCommandInteraction,
+  MessageContextMenuCommandInteraction,
   AutocompleteInteraction,
   SlashCommandBuilder,
   SlashCommandSubcommandsOnlyBuilder,
   SlashCommandOptionsOnlyBuilder,
+  ContextMenuCommandBuilder,
 } from "discord.js";
 import { BotContext } from "./Context.js";
 
-// Builder union type covering standard slash command builders
+// Builder union type covering Slash commands and Context Menu commands
 export type CommandBuilder =
   | SlashCommandBuilder
   | SlashCommandSubcommandsOnlyBuilder
   | SlashCommandOptionsOnlyBuilder
+  | ContextMenuCommandBuilder
   | Omit<SlashCommandBuilder, "addSubcommand" | "addSubcommandGroup">;
 
+// Union of all interaction types that can execute a command
+export type ExecutableInteraction =
+  | ChatInputCommandInteraction
+  | ContextMenuCommandInteraction
+  | UserContextMenuCommandInteraction
+  | MessageContextMenuCommandInteraction;
+
 /**
- * Interface representing a slash command module in the bot framework.
+ * Interface representing a slash command or context menu command module.
+ * Defaults to `ChatInputCommandInteraction` for standard slash commands.
  */
-export interface Command {
-  // Slash command builder data (name, description, options, subcommands)
+export interface Command<T extends ExecutableInteraction = ChatInputCommandInteraction> {
+  // Application command builder data (Slash or Context Menu)
   data: CommandBuilder;
 
-  // Primary execution handler invoked when a user runs the slash command
-  execute: (interaction: ChatInputCommandInteraction, context: BotContext) => Promise<void>;
+  // Primary execution handler receiving the typed interaction and BotContext
+  execute: (interaction: T, context: BotContext) => Promise<void>;
 
-  // Optional handler for dynamic option autocompletion
+  // Optional handler for dynamic option autocompletion (Slash commands only)
   autocomplete?: (interaction: AutocompleteInteraction, context: BotContext) => Promise<void>;
 
   /**

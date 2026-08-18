@@ -4,12 +4,13 @@ import {
 } from "discord.js";
 import { Command } from "../../types/Command.js";
 import { handleInteractionError } from "../../utils/error-handler.js";
+import { paginate } from "../../utils/paginator.js";
 
 // Helper to truncate lengthy string fields for Discord embed constraints
 const truncate = (value: string, max = 200) =>
   value.length > max ? `${value.slice(0, max - 3)}...` : value;
 
-// Developer error inspector command with subcommands and dynamic autocomplete for error IDs
+// Developer error inspector command with subcommands, dynamic autocomplete, and paginated error browsing
 const command: Command = {
   data: new SlashCommandBuilder()
     .setName("errors")
@@ -28,6 +29,9 @@ const command: Command = {
             .setRequired(true)
             .setAutocomplete(true)
         )
+    )
+    .addSubcommand((sub) =>
+      sub.setName("list").setDescription("Browse the latest logged errors with an interactive paginator.")
     ),
 
   // Access control tag restricted to developers
@@ -102,6 +106,34 @@ const command: Command = {
       }
 
       await interaction.reply({ embeds: [embed], ephemeral: true });
+      return;
+    }
+
+    // 3. Paginated list of latest errors
+    if (sub === "list") {
+      const records = await errorStore.listLatest(20);
+
+      if (records.length === 0) {
+        await interaction.reply({ content: "No logged error records found in the database.", ephemeral: true });
+        return;
+      }
+
+      // Generate a page for each error record
+      const pages = records.map((record, index) =>
+        new EmbedBuilder()
+          .setTitle(`Logged Error #${index + 1} (${record.id})`)
+          .setColor(0xf04747)
+          .addFields(
+            { name: "Context", value: `\`${record.context}\``, inline: true },
+            { name: "Occurrences", value: `\`${record.occurrences}\``, inline: true },
+            { name: "Timestamp", value: new Date(record.timestamp).toUTCString(), inline: true },
+            { name: "Message", value: truncate(record.message, 250) || "None", inline: false },
+            { name: "Stack Preview", value: record.stack ? `\`\`\`\n${truncate(record.stack, 300)}\n\`\`\`` : "None", inline: false }
+          )
+          .setFooter({ text: `Use /errors lookup ${record.id} for complete details` })
+      );
+
+      await paginate(interaction, pages, { ephemeral: true });
     }
   },
 };
