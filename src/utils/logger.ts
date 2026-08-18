@@ -2,8 +2,9 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-type LogLevel = "debug" | "info" | "warn" | "error";
+export type LogLevel = "debug" | "info" | "warn" | "error";
 
+// Priority weights for filtering log level output
 const levelPriority: Record<LogLevel, number> = {
   debug: 10,
   info: 20,
@@ -11,9 +12,14 @@ const levelPriority: Record<LogLevel, number> = {
   error: 40,
 };
 
+// Resolve logs output directory
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const logDir = path.resolve(__dirname, "../../logs");
 
+/**
+ * Structured Logger that writes human-readable messages to stdout/stderr
+ * and appends structured JSON lines to daily log files on disk.
+ */
 export class Logger {
   private currentLevel: LogLevel;
   private stream: fs.WriteStream | null = null;
@@ -25,26 +31,32 @@ export class Logger {
     }
   }
 
+  // Updates active minimum log level dynamically
   setLevel(level: LogLevel) {
     this.currentLevel = level;
   }
 
+  // Log debug messages (verbose internal state)
   debug(message: string, meta?: unknown) {
     this.write("debug", message, meta);
   }
 
+  // Log informational messages (standard operational events)
   info(message: string, meta?: unknown) {
     this.write("info", message, meta);
   }
 
+  // Log warning messages (non-fatal issues or permission blocks)
   warn(message: string, meta?: unknown) {
     this.write("warn", message, meta);
   }
 
+  // Log error messages (uncaught exceptions or failed operations)
   error(message: string, meta?: unknown) {
     this.write("error", message, meta);
   }
 
+  // Internal write pipeline
   private write(level: LogLevel, message: string, meta?: unknown) {
     if (levelPriority[level] < levelPriority[this.currentLevel]) return;
 
@@ -52,12 +64,12 @@ export class Logger {
     const record = { timestamp, level, message, meta };
     const line = JSON.stringify(record);
 
-    // Console output stays lightweight for quick debugging.
+    // Console output with appropriate stream method
     const consoleMethod =
       level === "error" ? console.error : level === "warn" ? console.warn : console.log;
     consoleMethod(`${timestamp} [${level.toUpperCase()}] ${message}`, meta ?? "");
 
-    // Append to log file per day.
+    // Daily rotating file stream write
     const fileName = path.join(logDir, `${timestamp.slice(0, 10)}.log`);
     if (!this.stream || this.stream.path !== fileName) {
       this.stream?.end();

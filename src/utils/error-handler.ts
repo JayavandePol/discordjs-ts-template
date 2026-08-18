@@ -1,11 +1,11 @@
 import {
-    CommandInteraction,
-    MessageComponentInteraction,
-    ModalSubmitInteraction,
-    EmbedBuilder,
-    ActionRowBuilder,
-    ButtonBuilder,
-    ButtonStyle,
+  CommandInteraction,
+  MessageComponentInteraction,
+  ModalSubmitInteraction,
+  EmbedBuilder,
+  ActionRowBuilder,
+  ButtonBuilder,
+  ButtonStyle,
 } from "discord.js";
 import { BotContext } from "../types/Context.js";
 import { ErrorMeta } from "../types/ErrorMeta.js";
@@ -17,130 +17,118 @@ import { notifyErrorLogChannel } from "./error-log.js";
  * Covers: slash commands, buttons, select menus, modals, context menus.
  */
 export type RepliableInteraction =
-    | CommandInteraction
-    | MessageComponentInteraction
-    | ModalSubmitInteraction;
+  | CommandInteraction
+  | MessageComponentInteraction
+  | ModalSubmitInteraction;
 
 /**
- * One-call error handler for ANY interaction type.
+ * Universal error handler for all interaction types.
  *
- * Captures the error, logs it to DB, notifies the error log channel,
- * and replies to the user with a friendly embed + "Contact Developer" button.
+ * Captures the error, creates/increments a deterministic DB record, notifies
+ * the error log channel, and replies to the user with a friendly embed + "Contact Developer" button.
  *
- * Works with slash commands, buttons, select menus, modals — anything repliable.
- *
- * **Most commands don't need this** — the central handler in interactionCreate.ts
- * already catches all unhandled errors from slash commands automatically.
- *
- * Use this when:
- * - A button/select menu/modal handler needs error handling
- * - A command needs partial-failure handling (catch, report, continue)
- *
- * @example
- * ```ts
- * // In a slash command
- * try { ... } catch (error) {
- *   await handleInteractionError(interaction, context, error, "command:pay");
- * }
- *
- * // In a button handler
- * try { ... } catch (error) {
- *   await handleInteractionError(interaction, context, error, "button:confirm-purchase");
- * }
- * ```
+ * Most slash commands don't need manual try/catch as the central handler in `interactionCreate.ts`
+ * automatically catches unhandled exceptions.
  */
 export const handleInteractionError = async (
-    interaction: RepliableInteraction,
-    context: BotContext,
-    error: unknown,
-    contextLabel: string,
-    meta?: ErrorMeta
+  interaction: RepliableInteraction,
+  context: BotContext,
+  error: unknown,
+  contextLabel: string,
+  meta?: ErrorMeta
 ): Promise<void> => {
-    const options: Record<string, string | number | boolean> = {};
+  // Extract interaction input options for contextual debugging
+  const options: Record<string, string | number | boolean> = {};
 
-    if (interaction.isChatInputCommand() && interaction.options.data) {
-        for (const opt of interaction.options.data) {
-            if (opt.value !== undefined) {
-                options[opt.name] = opt.value;
-            }
-        }
-    } else if (interaction.isModalSubmit()) {
-        for (const [key, field] of interaction.fields.fields) {
-            if ("value" in field) {
-                options[key] = field.value;
-            }
-        }
+  if (interaction.isChatInputCommand() && interaction.options.data) {
+    for (const opt of interaction.options.data) {
+      if (opt.value !== undefined) {
+        options[opt.name] = opt.value;
+      }
     }
+  } else if (interaction.isModalSubmit()) {
+    for (const [key, field] of interaction.fields.fields) {
+      if ("value" in field && field.value !== null && field.value !== undefined) {
+        options[key] = field.value;
+      }
+    }
+  }
 
-    const errorMeta: ErrorMeta = meta ?? {
-        userId: interaction.user.id,
-        guildId: interaction.guildId ?? undefined,
-        channelId: interaction.channelId ?? undefined,
-        command: "commandName" in interaction ? interaction.commandName : undefined,
-        options: Object.keys(options).length > 0 ? options : undefined,
+  // Construct error metadata snapshot
+  const errorMeta: ErrorMeta = meta ?? {
+    userId: interaction.user.id,
+    guildId: interaction.guildId ?? undefined,
+    channelId: interaction.channelId ?? undefined,
+    command: "commandName" in interaction ? interaction.commandName : undefined,
+    options: Object.keys(options).length > 0 ? options : undefined,
+  };
+
+  // Expected user errors (validation, insufficient balance, etc.) should not generate crash reports
+  if (error && typeof error === "object" && "name" in error && error.name === "UserError") {
+    const message = "message" in error ? String(error.message) : "An expected error occurred.";
+
+    const response = {
+      embeds: [new EmbedBuilder().setTitle("Notice").setDescription(message).setColor(0xeeb902)],
+      ephemeral: true,
     };
 
-    if (error && typeof error === "object" && "name" in error && error.name === "UserError") {
-        const message = "message" in error ? String(error.message) : "An expected error occurred.";
-
-        const response = {
-            embeds: [new EmbedBuilder().setTitle("Notice").setDescription(message).setColor(0xeeb902)],
-            ephemeral: true
-        };
-
-        try {
-            if (interaction.deferred || interaction.replied) await interaction.editReply(response);
-            else await interaction.reply(response);
-        } catch (replyError) {
-            context.logger.error("Failed to send UserError response", replyError);
-        }
-        return;
-    }
-
-    const report = await captureError(
-        context.logger,
-        error,
-        contextLabel,
-        context.errorStore,
-        errorMeta
-    );
-
-    await notifyErrorLogChannel(context, {
-        report,
-        meta: errorMeta,
-        contextLabel,
-    });
-
-    const embed = new EmbedBuilder()
-        .setTitle("Something went wrong")
-        .setDescription(
-            "We ran into an unexpected error while handling your request. " +
-            "Please contact the developers and share this error ID so we can investigate.\n\n" +
-            `Error ID: **${report.id}**`
-        )
-        .setColor(0xf04747);
-
-    const components: ActionRowBuilder<ButtonBuilder>[] = [];
-
-    if (context.config.supportUrl) {
-        const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
-            new ButtonBuilder()
-                .setLabel("Contact Developer")
-                .setStyle(ButtonStyle.Link)
-                .setURL(context.config.supportUrl)
-        );
-        components.push(row);
-    }
-
-    const response = { embeds: [embed], components, ephemeral: true };
-
     try {
-        if (interaction.deferred || interaction.replied) {
-            await interaction.editReply(response);
-        } else {
-            await interaction.reply(response);
-        }
+      if (interaction.deferred || interaction.replied) await interaction.editReply(response);
+      else await interaction.reply(response);
     } catch (replyError) {
-        context.logger.error("Failed to send error response to user", replyError);
+      context.logger.error("Failed to send UserError response", replyError);
     }
+    return;
+  }
+
+  // Capture unexpected crash report, persist to DB and log
+  const report = await captureError(
+    context.logger,
+    error,
+    contextLabel,
+    context.errorStore,
+    errorMeta
+  );
+
+  // Send notification to designated developer error log channel
+  await notifyErrorLogChannel(context, {
+    report,
+    meta: errorMeta,
+    contextLabel,
+  });
+
+  // User-facing friendly error embed with error ID for reference
+  const embed = new EmbedBuilder()
+    .setTitle("Something went wrong")
+    .setDescription(
+      "We ran into an unexpected error while handling your request. " +
+        "Please contact the developers and share this error ID so we can investigate.\n\n" +
+        `Error ID: **${report.id}**`
+    )
+    .setColor(0xf04747);
+
+  const components: ActionRowBuilder<ButtonBuilder>[] = [];
+
+  // Add "Contact Developer" button if a support URL is configured
+  if (context.config.supportUrl) {
+    const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
+      new ButtonBuilder()
+        .setLabel("Contact Developer")
+        .setStyle(ButtonStyle.Link)
+        .setURL(context.config.supportUrl)
+    );
+    components.push(row);
+  }
+
+  const response = { embeds: [embed], components, ephemeral: true };
+
+  try {
+    if (interaction.deferred || interaction.replied) {
+      await interaction.editReply(response);
+    } else {
+      await interaction.reply(response);
+    }
+  } catch (replyError) {
+    context.logger.error("Failed to send error response to user", replyError);
+  }
 };
