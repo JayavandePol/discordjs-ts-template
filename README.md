@@ -1,103 +1,138 @@
 # Advanced Discord Bot Template
 
-TypeScript + discord.js v14 starter with structured commands, auto-registration on startup, environment-driven config, JSON logging with error IDs, and optional Prisma-backed error storage.
+Production-ready Discord.js v14 + TypeScript starter with structured commands, dynamic autocompletion, component routing, built-in cooldowns, Zod configuration validation, deterministic error hashes, and optional Prisma database storage.
 
-## Features
-- Slash-command ready with `/ping`
-- Autoloaded commands/events (recursive folders); single shared bot context (config, logger, client)
-- JSON logs to console + `logs/YYYY-MM-DD.log`; user-facing error IDs
-- Optional error-log channel notifications with a Details button for per-error info
-- Command registration script _and_ automatic registration on startup (guild or global)
-- Dev-only tools: `/status` diagnostics, `/errors test|lookup`
-- Optional database persistence via Prisma (SQLite by default; switchable via Prisma schema)
-- Hot reload via `nodemon` + `ts-node`
+---
 
-## Quick start
-1. Copy `.env.example` to `.env` and set:
-   - `DISCORD_TOKEN` — bot token
-   - `APPLICATION_ID` — your application ID
-   - `GUILD_ID` — optional; when set and `MULTI_GUILD=false`, commands register to this guild for faster iteration
-   - `DEV_ID` — a role ID; users with this role can use developer commands
-   - `ERRORLOGCHANNEL_ID` — optional channel ID to receive error embeds with a Details button
-   - `MULTI_GUILD` — `true` to prefer global registration; `false` to prefer guild when `GUILD_ID` is set
-   - `SUPPORT_URL` — URL for the "Contact Developer" button (e.g., a channel link)
-   - Database (optional, used for error storage):
-     - `DB_ENABLED` — `true`/`false` to toggle storage
-     - `DB_STORAGE` — SQLite file path (default `./data/database.sqlite`) when `DATABASE_URL` is not set
-     - `DB_LOGGING` — `true` to log Prisma queries via the bot logger
-     - `DATABASE_URL` — full connection string (required for non-SQLite providers)
-     - To use Postgres/MySQL/etc, update `provider` in `prisma/schema.prisma` and set `DATABASE_URL`
-2. Install deps: `npm install`
-3. Generate the Prisma client: `npm run prisma:generate`
-4. Run migrations (creates SQLite db by default): `npm run prisma:migrate`
-5. Run the bot locally: `npm run dev`
-   - Commands auto-register on startup based on `MULTI_GUILD`/`GUILD_ID`
-   - You can still force registration via the scripts below
+## ✨ Key Features
 
-## Scripts
-- `npm run dev` — ts-node with nodemon reload
-- `npm run build` — compile to `dist`
-- `npm start` — run compiled build
-- `npm run lint` — type-check
-- `npm run prisma:generate` — generate Prisma client
-- `npm run prisma:migrate` — create/update the database schema
-- `npm run register:global` — force global command registration
-- `npm run register:guild` — force guild command registration (needs `GUILD_ID`)
+- **Modern TypeScript & ESM:** Powered by `tsx` for sub-millisecond hot-reloading with zero loader configuration.
+- **Zod Environment Validation:** Fails fast with descriptive error messages on boot if credentials or configs are invalid.
+- **Slash Commands & Autocomplete:** Modular command structure with built-in per-user cooldowns and automatic reply deferral.
+- **Safe Rate Limit Handling:** Guarded command auto-deployment on startup to prevent hitting Discord API rate limits during development.
+- **Developer Access Controls:** Flexible access control supporting Developer User IDs (across guilds & DMs) and guild role IDs.
+- **Standardized Embed Presets:** Consistent color themes and reusable embed helpers (`createSuccessEmbed`, `createErrorEmbed`, etc.).
+- **Deterministic Error Tracking:** Crashes generate unique 8-character stack trace hashes, deduplicated and tracked via Prisma.
+- **Error Channel Notifications:** Posts rich alerts with an interactive "Inspect Stack" button and 60-second anti-spam throttling.
+- **Sharding Support:** Ready for 1000+ servers with `src/sharding.ts`.
 
-## Switching database provider (MariaDB example)
-1. Open `prisma/schema.prisma` and change the datasource provider:
-  - `provider = "mysql"`
-2. Set `DATABASE_URL` in `.env` (MariaDB uses the MySQL protocol):
-  - `DATABASE_URL="mysql://user:pass@host:3306/dbname"`
-3. Regenerate the client and migrate:
-  - `npm run prisma:generate`
-  - `npm run prisma:migrate`
+---
 
-Notes:
-- `DB_STORAGE` is ignored when `DATABASE_URL` is set.
-- For Postgres, set `provider = "postgresql"` and use a Postgres `DATABASE_URL`.
+## 🚀 Quick Start
 
-## Project layout
+### 1. Configure Environment
+Copy `.env.example` to `.env`:
+```bash
+cp .env.example .env
+```
+Fill in your bot credentials in `.env`:
+- `DISCORD_TOKEN`: Your Discord Bot Token.
+- `APPLICATION_ID`: Your Discord Application Client ID.
+- `GUILD_ID`: Optional server ID for instantaneous command deployment during testing.
+- `DEV_USER_IDS`: Your Discord User ID (allows developer commands in guilds and DMs).
+- `AUTO_REGISTER_COMMANDS`: Keep `false` during local development (use CLI scripts instead).
+
+### 2. Install & Setup Database
+```bash
+npm install
+npm run prisma:generate
+npm run prisma:migrate
+```
+
+### 3. Deploy Commands & Run
+```bash
+# Register commands to your test server (instant update):
+npm run register:guild
+
+# Start bot in development mode with live watch:
+npm run dev
+```
+
+---
+
+## 📜 Available Scripts
+
+| Command | Description |
+|---|---|
+| `npm run dev` | Starts the bot in development mode using `tsx watch` |
+| `npm run build` | Compiles TypeScript source files into `dist/` |
+| `npm start` | Runs compiled JavaScript output from `dist/` |
+| `npm run lint` | Type-checks code with `tsc --noEmit` |
+| `npm run register:guild` | Deploys slash commands to your development `GUILD_ID` |
+| `npm run register:global` | Deploys slash commands globally across Discord |
+| `npm run prisma:generate` | Generates Prisma client types |
+| `npm run prisma:migrate` | Runs Prisma migrations for SQLite or configured database |
+
+---
+
+## 📁 Project Structure
+
 ```
 src/
-  commands/
-    administrator/              Commands restricted to guild Administrator permission
-    developer/                  Commands restricted to DEV_ID
-    (others)                    Public commands
-  config/config.ts              Env loading + Config type
-  core/                         Command/event loaders + publisher
-  data/                         Prisma setup + store
-  events/                       Event handlers (recursive)
-  scripts/register-commands.ts  CLI for registering slash commands
-  types/                        Shared Command/Event/Context types
-  utils/                        Logger + error helpers
+├── commands/               # Slash command definitions
+│   ├── administrator/      # Commands requiring Administrator permission
+│   ├── developer/          # Commands restricted to bot developers
+│   └── ping.ts             # Public command example with cooldown & embeds
+├── config/
+│   └── config.ts           # Zod environment schema and validation
+├── core/
+│   ├── command-publisher.ts# Discord REST API command deployer
+│   ├── command-registry.ts # Dynamic recursive command loader
+│   └── event-registry.ts   # Dynamic event loader
+├── data/
+│   ├── error-store.ts      # Prisma error repository
+│   └── prisma.ts           # Prisma database client initializer
+├── events/
+│   ├── interactionCreate.ts# Interaction router (Commands, Autocomplete, Buttons)
+│   └── ready.ts            # Client ready listener
+├── scripts/
+│   └── register-commands.ts# CLI deployment utility
+├── types/
+│   ├── Command.ts          # Command interface with cooldown & defer options
+│   ├── Context.ts          # BotContext interface
+│   ├── ErrorMeta.ts        # Error metadata shape
+│   └── Event.ts            # Event interface
+└── utils/
+    ├── cooldown-manager.ts # Per-user command cooldown tracker
+    ├── embeds.ts           # Standardized embed builder helpers
+    ├── error-handler.ts    # Centralized interaction error catcher
+    ├── error-log.ts        # Discord channel error notifier with throttling
+    ├── error-reporter.ts   # Deterministic error hash generator & logger
+    ├── id.ts               # Stack trace sanitization and hashing
+    ├── logger.ts           # Daily rotating JSON file logger
+    └── user-error.ts       # Expected UserError exception class
 ```
 
-## Adding commands
-Create `src/commands/my-command.ts`:
+---
+
+## 🛡️ Access Control & Gating
+
+- **Public Commands:** Place in `src/commands/` or subfolders.
+- **Admin Commands:** Place in `src/commands/administrator/`. Native Discord UI permissions (`setDefaultMemberPermissions`) and code checks ensure only server admins can run them.
+- **Developer Commands:** Place in `src/commands/developer/`. Restricted to user snowflakes in `DEV_USER_IDS` or `DEV_ROLE_ID`.
+
+---
+
+## 💡 Adding a New Command
+
+Create `src/commands/hello.ts`:
 ```ts
 import { SlashCommandBuilder } from "discord.js";
 import { Command } from "../types/Command.js";
+import { createSuccessEmbed } from "../utils/embeds.js";
 
 const command: Command = {
-  data: new SlashCommandBuilder().setName("hello").setDescription("Say hi"),
+  data: new SlashCommandBuilder()
+    .setName("hello")
+    .setDescription("Say hello to the bot"),
+  cooldown: 5, // 5-second per-user cooldown
   async execute(interaction, { logger }) {
-    await interaction.reply("Hi!");
-    logger.info("Greeted a user", { user: interaction.user.id });
+    const embed = createSuccessEmbed("👋 Hello!", `Greetings, <@${interaction.user.id}>!`);
+    await interaction.reply({ embeds: [embed] });
+    logger.info("Greeted user", { userId: interaction.user.id });
   },
 };
 
 export default command;
 ```
-Then rerun the register script or restart the bot (auto-registers on startup).
-
-## Error handling
-- Errors in slash commands are caught automatically by the central handler — no boilerplate needed.
-- Throw a `UserError` from `src/utils/user-error.ts` for expected validation/permission failures. This will politely reply to the user without spamming error logs or creating an error ID.
-- Real system crashes are captured with a **deterministic Error ID hash** based on the stack trace. The exact same crash always gets the exact same ID.
-- Errors are persisted via Prisma for lookup. If the same crash happens again, it UPSERTs the DB row and simply increments the `occurrences` count instead of duplicating rows.
-- Unnecessary Node.js internals and `node_modules` lines are automatically stripped from the stack trace for readability.
-- Slash Command options and Modal form inputs are automatically captured into the error `meta` so you know exactly what the user typed.
-- Users see a rich error embed with the Error ID and a "Contact Developer" button.
-- The bot posts an embed to `ERRORLOGCHANNEL_ID` with a Details button. If the exact same crash happens >5 times in 60s, it temporarily suppresses the channel embed to prevent massive spam.
-- Dev-only `/errors lookup <id>` command lets you view the full trace, inputs, and occurrences.
+Deploy the new command with `npm run register:guild`.
