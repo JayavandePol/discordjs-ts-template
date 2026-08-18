@@ -1,18 +1,19 @@
 # Advanced Discord Bot Template
 
-Production-ready Discord.js v14 + TypeScript starter with structured commands, dynamic autocompletion, component routing, built-in cooldowns, Zod configuration validation, deterministic error hashes, and optional Prisma database storage.
+Production-ready Discord.js v14 + TypeScript starter with structured commands, dynamic autocompletion, component routing, built-in cooldowns, Zod configuration validation, deterministic error hashes, and **Multi-Dialect Drizzle ORM** (SQLite, PostgreSQL, MySQL/MariaDB).
 
 ---
 
 ## ✨ Key Features
 
 - **Modern TypeScript & ESM:** Powered by `tsx` for sub-millisecond hot-reloading with zero loader configuration.
+- **Multi-Dialect Drizzle ORM:** Zero-config **SQLite** out of the box (`better-sqlite3`), with instant switching to **PostgreSQL** or **MySQL/MariaDB** via `DATABASE_URL`.
 - **Zod Environment Validation:** Fails fast with descriptive error messages on boot if credentials or configs are invalid.
 - **Slash Commands & Autocomplete:** Modular command structure with built-in per-user cooldowns and automatic reply deferral.
 - **Safe Rate Limit Handling:** Guarded command auto-deployment on startup to prevent hitting Discord API rate limits during development.
 - **Developer Access Controls:** Flexible access control supporting Developer User IDs (across guilds & DMs) and guild role IDs.
 - **Standardized Embed Presets:** Consistent color themes and reusable embed helpers (`createSuccessEmbed`, `createErrorEmbed`, etc.).
-- **Deterministic Error Tracking:** Crashes generate unique 8-character stack trace hashes, deduplicated and tracked via Prisma.
+- **Deterministic Error Tracking:** Crashes generate unique 8-character stack trace hashes, deduplicated and tracked in the database.
 - **Error Channel Notifications:** Posts rich alerts with an interactive "Inspect Stack" button and 60-second anti-spam throttling.
 - **Sharding Support:** Ready for 1000+ servers with `src/sharding.ts`.
 
@@ -31,12 +32,12 @@ Fill in your bot credentials in `.env`:
 - `GUILD_ID`: Optional server ID for instantaneous command deployment during testing.
 - `DEV_USER_IDS`: Your Discord User ID (allows developer commands in guilds and DMs).
 - `AUTO_REGISTER_COMMANDS`: Keep `false` during local development (use CLI scripts instead).
+- `DATABASE_URL`: Defaults to `./data/database.sqlite`. (Change to `postgresql://...` or `mysql://...` if using an external DB).
 
-### 2. Install & Setup Database
+### 2. Install & Sync Database
 ```bash
 npm install
-npm run prisma:generate
-npm run prisma:migrate
+npm run db:push
 ```
 
 ### 3. Deploy Commands & Run
@@ -50,6 +51,23 @@ npm run dev
 
 ---
 
+## 🗄️ Database Dialect Switching (Drizzle ORM)
+
+The bot automatically detects your database dialect from `DATABASE_URL`:
+
+| Dialect | Example `DATABASE_URL` in `.env` | Driver Used |
+|---|---|---|
+| **SQLite (Default)** | `./data/database.sqlite` or `file:./data/database.sqlite` | `better-sqlite3` (zero server config) |
+| **PostgreSQL** | `postgresql://user:password@localhost:5432/bot` | `postgres` |
+| **MySQL / MariaDB** | `mysql://user:password@localhost:3306/bot` | `mysql2` |
+
+To synchronize table schemas to your target database, run:
+```bash
+npm run db:push
+```
+
+---
+
 ## 📜 Available Scripts
 
 | Command | Description |
@@ -58,10 +76,10 @@ npm run dev
 | `npm run build` | Compiles TypeScript source files into `dist/` |
 | `npm start` | Runs compiled JavaScript output from `dist/` |
 | `npm run lint` | Type-checks code with `tsc --noEmit` |
+| `npm run db:push` | Pushes schema changes directly to the database using `drizzle-kit` |
+| `npm run db:studio` | Opens Drizzle Studio in your browser to inspect database tables |
 | `npm run register:guild` | Deploys slash commands to your development `GUILD_ID` |
 | `npm run register:global` | Deploys slash commands globally across Discord |
-| `npm run prisma:generate` | Generates Prisma client types |
-| `npm run prisma:migrate` | Runs Prisma migrations for SQLite or configured database |
 
 ---
 
@@ -80,8 +98,13 @@ src/
 │   ├── command-registry.ts # Dynamic recursive command loader
 │   └── event-registry.ts   # Dynamic event loader
 ├── data/
-│   ├── error-store.ts      # Prisma error repository
-│   └── prisma.ts           # Prisma database client initializer
+│   ├── schema/             # Drizzle table schemas
+│   │   ├── sqlite.ts       # SQLite schema definition
+│   │   ├── pg.ts           # PostgreSQL schema definition
+│   │   ├── mysql.ts        # MySQL / MariaDB schema definition
+│   │   └── index.ts        # Barrel export
+│   ├── db.ts               # Multi-dialect Drizzle database factory
+│   └── error-store.ts      # Multi-dialect error repository
 ├── events/
 │   ├── interactionCreate.ts# Interaction router (Commands, Autocomplete, Buttons)
 │   └── ready.ts            # Client ready listener
@@ -102,14 +125,6 @@ src/
     ├── logger.ts           # Daily rotating JSON file logger
     └── user-error.ts       # Expected UserError exception class
 ```
-
----
-
-## 🛡️ Access Control & Gating
-
-- **Public Commands:** Place in `src/commands/` or subfolders.
-- **Admin Commands:** Place in `src/commands/administrator/`. Native Discord UI permissions (`setDefaultMemberPermissions`) and code checks ensure only server admins can run them.
-- **Developer Commands:** Place in `src/commands/developer/`. Restricted to user snowflakes in `DEV_USER_IDS` or `DEV_ROLE_ID`.
 
 ---
 

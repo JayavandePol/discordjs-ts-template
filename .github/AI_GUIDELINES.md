@@ -4,11 +4,11 @@ This document provides an overview of the project structure and guidelines for A
 
 ## Project Structure
 
-The project is a **Discord.js v14** bot built with **TypeScript**, **ES Modules (ESM)**, **tsx**, and **Prisma ORM**.
+The project is a **Discord.js v14** bot built with **TypeScript**, **ES Modules (ESM)**, **tsx**, and **Multi-Dialect Drizzle ORM** (SQLite, PostgreSQL, MySQL/MariaDB).
 
 ### Directory Layout (`src/`)
 
-*   **`index.ts`**: The entry point. Initializes the client, database, cooldowns, and loads handlers.
+*   **`index.ts`**: The entry point. Initializes the client, multi-dialect Drizzle database, cooldowns, and loads handlers.
 *   **`sharding.ts`**: Alternative entry point for production (1000+ servers). Uses `ShardingManager`.
 *   **`commands/`**: Contains slash command definitions.
     *   **`developer/`**: Commands restricted to developers in `DEV_USER_IDS` or `DEV_ROLE_ID`.
@@ -32,9 +32,10 @@ The project is a **Discord.js v14** bot built with **TypeScript**, **ES Modules 
     *   `error-reporter.ts`: Captures errors with a deterministic hash, logs them, and stores to DB.
     *   `error-log.ts`: Sends error embeds to a designated error log channel with throttling.
     *   `id.ts`: Sanitizes stack traces and generates unique error IDs.
-*   **`data/`**: Database layer (Prisma).
-    *   `prisma.ts`: Initializes the Prisma client connection.
-    *   `error-store.ts`: Store class wrapping error logging and queries.
+*   **`data/`**: Database layer (Drizzle ORM).
+    *   `schema/`: Dialect-specific table schemas (`sqlite.ts`, `pg.ts`, `mysql.ts`).
+    *   `db.ts`: Multi-dialect Drizzle database connection factory (`initDatabase`).
+    *   `error-store.ts`: Store class wrapping error logging and queries across all dialects.
 *   **`config/`**: Configuration loading and Zod environment variable validation (`src/config/config.ts`).
 *   **`scripts/`**: CLI utilities (e.g., `register-commands.ts`).
 
@@ -47,8 +48,8 @@ When acting as a developer for this project, adopt the following mindset:
 ### 1. Problem Solving & Thinking Process
 *   **Scalability First**:
     *   **Sharding**: For 1000+ servers, use `src/sharding.ts` as the entry point instead of `src/index.ts`.
-    *   **Database**: Use **PostgreSQL** or **MySQL** for production. SQLite is for development.
-    *   **State**: Never store state in memory (variables/Maps) that needs to persist across restarts. Use Prisma.
+    *   **Database**: SQLite is for zero-config development. PostgreSQL and MySQL/MariaDB are fully supported by simply setting `DATABASE_URL`.
+    *   **State**: Never store state in memory (variables/Maps) that needs to persist across restarts. Use Drizzle ORM.
 *   **Rate Limits**: Never call `registerApplicationCommands` unconditionally on startup. Use `npm run register:guild` or `npm run register:global`.
 *   **Traceability**: Every unexpected error must be traceable. Never swallow errors. Always use `captureError` to generate an ID and `notifyErrorLogChannel` to alert the error log channel.
 *   **User Experience**:
