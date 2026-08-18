@@ -4,6 +4,7 @@ import { Logger } from "../utils/logger.js";
 import { Command } from "./Command.js";
 import { ErrorStore } from "../data/error-store.js";
 import { CooldownManager } from "../utils/cooldown-manager.js";
+import { ComponentRegistry } from "../core/component-registry.js";
 
 /**
  * Shared bot runtime context passed to all command and event executions.
@@ -18,8 +19,11 @@ export interface BotContext {
   // Validated application configuration
   config: Config;
 
-  // In-memory collection of all loaded slash commands
+  // In-memory collection of all loaded slash & context menu commands
   commands: Map<string, Command>;
+
+  // Registry of modular button, select menu, and modal component handlers
+  components: ComponentRegistry;
 
   // Cooldown tracker for rate-limiting command usage
   cooldowns: CooldownManager;

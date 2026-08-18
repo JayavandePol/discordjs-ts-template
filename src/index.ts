@@ -1,6 +1,7 @@
 import { Client, GatewayIntentBits } from "discord.js";
 import { loadConfig } from "./config/config.js";
 import { loadCommands } from "./core/command-registry.js";
+import { ComponentRegistry } from "./core/component-registry.js";
 import { registerEvents } from "./core/event-registry.js";
 import { BotContext } from "./types/Context.js";
 import { Logger } from "./utils/logger.js";
@@ -20,10 +21,14 @@ const client = new Client({
   intents: [GatewayIntentBits.Guilds],
 });
 
-// 4. Load all command files from src/commands recursively
+// 4. Load all command files (Slash & Context Menu) from src/commands recursively
 const commands = await loadCommands(logger);
 
-// 5. Initialize multi-dialect Drizzle ORM database connection (SQLite, PostgreSQL, MySQL/MariaDB)
+// 5. Load all modular component handlers (Buttons, Select Menus, Modals)
+const components = new ComponentRegistry(logger);
+await components.loadAll();
+
+// 6. Initialize multi-dialect Drizzle ORM database connection (SQLite, PostgreSQL, MySQL/MariaDB)
 const dbConnection: DatabaseConnection | null = await initDatabase(config, logger);
 let errorStore: ErrorStore | undefined;
 
@@ -32,10 +37,10 @@ if (dbConnection) {
   logger.info(`Database connected successfully using ${dbConnection.dialect.toUpperCase()}.`);
 }
 
-// 6. Initialize in-memory cooldown tracking manager
+// 7. Initialize in-memory cooldown tracking manager
 const cooldowns = new CooldownManager();
 
-// 7. Handle graceful shutdown for process signals and uncaught exceptions
+// 8. Handle graceful shutdown for process signals and uncaught exceptions
 let shuttingDown = false;
 const shutdown = async (reason: string, error?: unknown) => {
   if (shuttingDown) return;
@@ -71,20 +76,21 @@ process.on("SIGTERM", () => shutdown("SIGTERM"));
 process.on("uncaughtException", (error) => shutdown("uncaughtException", error));
 process.on("unhandledRejection", (error) => shutdown("unhandledRejection", error));
 
-// 8. Assemble the shared context object
+// 9. Assemble the shared context object
 const context: BotContext = {
   client,
   logger,
   config,
   commands,
+  components,
   cooldowns,
   errorStore,
 };
 
-// 9. Load and attach all event listeners from src/events
+// 10. Load and attach all event listeners from src/events
 await registerEvents(client, context, logger);
 
-// 10. Authenticate and log in to Discord gateway
+// 11. Authenticate and log in to Discord gateway
 try {
   await client.login(config.token);
 } catch (error) {
