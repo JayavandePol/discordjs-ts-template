@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
-import Database from "better-sqlite3";
-import { drizzle as drizzleSqlite, BetterSQLite3Database } from "drizzle-orm/better-sqlite3";
+import { createClient } from "@libsql/client";
+import { drizzle as drizzleSqlite, LibSQLDatabase } from "drizzle-orm/libsql";
 import postgres from "postgres";
 import { drizzle as drizzlePg, PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import mysql from "mysql2/promise";
@@ -18,7 +18,7 @@ export type DatabaseDialect = "sqlite" | "postgres" | "mysql";
 // Unified wrapper holding the active Drizzle database client and dialect
 export type DatabaseConnection = {
   dialect: DatabaseDialect;
-  sqlite?: BetterSQLite3Database<typeof sqliteSchema>;
+  sqlite?: LibSQLDatabase<typeof sqliteSchema>;
   pg?: PostgresJsDatabase<typeof pgSchema>;
   mysql?: MySql2Database<typeof mysqlSchema>;
   close: () => Promise<void> | void;
@@ -53,7 +53,7 @@ export const detectDialect = (config: Config): DatabaseDialect => {
 /**
  * Initializes a multi-dialect Drizzle ORM connection based on environment configuration.
  *
- * - SQLite (Default): Runs locally with `better-sqlite3` (zero server config required).
+ * - SQLite (Default): Runs locally with `@libsql/client` (zero server config, no build tools required).
  * - PostgreSQL: Automatically boots when DATABASE_URL is `postgres://` or `postgresql://`.
  * - MySQL/MariaDB: Automatically boots when DATABASE_URL is `mysql://` or `mariadb://`.
  */
@@ -97,7 +97,8 @@ export const initDatabase = async (
     };
   }
 
-  // Default: SQLite (better-sqlite3)
+  // Default: SQLite, via libSQL (ships prebuilt native bindings for every platform,
+  // so forking this template never requires a local C++ toolchain to run `npm install`).
   const sqlitePath = config.database.url
     ? config.database.url.replace(/^file:/, "")
     : config.database.storage;
@@ -105,14 +106,14 @@ export const initDatabase = async (
   const resolvedPath = path.resolve(sqlitePath);
   ensureDir(resolvedPath);
 
-  const sqlite = new Database(resolvedPath);
+  const client = createClient({ url: `file:${resolvedPath}` });
   // Enable Write-Ahead Logging (WAL) for superior concurrency and performance in SQLite
-  sqlite.pragma("journal_mode = WAL");
+  await client.execute("PRAGMA journal_mode = WAL;");
 
-  const db = drizzleSqlite(sqlite, { schema: sqliteSchema });
+  const db = drizzleSqlite(client, { schema: sqliteSchema });
 
   // Automatically create the errors table if it does not yet exist in SQLite
-  sqlite.exec(`
+  await client.execute(`
     CREATE TABLE IF NOT EXISTS errors (
       id TEXT PRIMARY KEY,
       timestamp TEXT NOT NULL,
@@ -133,7 +134,7 @@ export const initDatabase = async (
     dialect: "sqlite",
     sqlite: db,
     close: () => {
-      sqlite.close();
+      client.close();
     },
   };
 };

@@ -7,7 +7,7 @@ Production-ready Discord.js v14 + TypeScript starter with structured commands, d
 ## ✨ Key Features
 
 - **Modern TypeScript & ESM:** Powered by `tsx` for sub-millisecond hot-reloading with zero loader configuration.
-- **Multi-Dialect Drizzle ORM:** Zero-config **SQLite** out of the box (`better-sqlite3`), with instant switching to **PostgreSQL** or **MySQL/MariaDB** via `DATABASE_URL`.
+- **Multi-Dialect Drizzle ORM:** Zero-config **SQLite** out of the box (`@libsql/client`, prebuilt binaries for every platform — no C++ build tools needed), with instant switching to **PostgreSQL** or **MySQL/MariaDB** via `DATABASE_URL`.
 - **Modular Component Handlers:** Dedicated directory routing for Buttons, Select Menus, and Modals supporting exact matching and RegExp patterns (`src/components/`).
 - **Interactive Embed Paginator:** Full button pagination helper (`⏮️`, `◀️`, `Page X/Y`, `▶️`, `⏭️`) with automatic collector and timeout handling (`src/utils/paginator.ts`).
 - **Context Menu Commands:** Support for User and Message Context Menu commands alongside Slash commands (`src/commands/`).

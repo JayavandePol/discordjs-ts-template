@@ -32,7 +32,7 @@ export const captureError = async (
   // Log structured error to file and console
   logger.error(`Error captured (${context})`, { id, meta, ...payload });
 
-  // Store in Prisma database if database is enabled
+  // Store in the database (via Drizzle ORM) if database is enabled
   if (errorStore) {
     await errorStore.recordError({
       id,

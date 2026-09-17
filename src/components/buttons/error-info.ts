@@ -2,6 +2,10 @@ import { EmbedBuilder, GuildMember } from "discord.js";
 import { ButtonHandler } from "../../types/Component.js";
 import { Config } from "../../config/config.js";
 
+// Truncates lengthy strings to keep the embed description within Discord's 4096-character limit
+const truncate = (value: string, max: number) =>
+  value.length > max ? `${value.slice(0, max - 3)}...` : value;
+
 // Helper function to verify developer access
 const isDeveloper = (
   userId: string,
@@ -55,13 +59,13 @@ const button: ButtonHandler = {
       `**User:** ${meta.userId ? `<@${meta.userId}>` : "Unknown"}`,
       `**Guild:** ${meta.guildId ?? "DM/Unknown"}`,
       `**Channel:** ${meta.channelId ? `<#${meta.channelId}>` : "Unknown"}`,
-      `**Message:** ${record.message}`,
+      `**Message:** ${truncate(record.message, 500)}`,
     ];
 
     if (record.stack) {
       fields.push("\n**Stack Trace:**");
       fields.push("```");
-      fields.push(record.stack.slice(0, 1500));
+      fields.push(truncate(record.stack, 1500));
       fields.push("```");
     }
 

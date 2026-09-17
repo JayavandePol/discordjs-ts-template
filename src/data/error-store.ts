@@ -220,7 +220,7 @@ export class ErrorStore {
       const res = await this.db.sqlite
         .delete(sqliteErrors)
         .where(lt(sqliteErrors.timestamp, cutoffIso));
-      return res.changes;
+      return res.rowsAffected;
     }
 
     if (this.db.dialect === "postgres" && this.db.pg) {
