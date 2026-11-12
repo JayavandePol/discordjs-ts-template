@@ -1,4 +1,5 @@
 import {
+  MessageFlags,
   Events,
   Interaction,
   PermissionsBitField,
@@ -124,7 +125,7 @@ const event = defineEvent({
       const command = commands.get(commandKey(kind, interaction.commandName));
       if (!command) {
         logger.warn("Received unknown command", { command: interaction.commandName });
-        await interaction.reply({ content: "Command not recognized.", ephemeral: true });
+        await interaction.reply({ content: "Command not recognized.", flags: MessageFlags.Ephemeral });
         return;
       }
 
@@ -140,7 +141,7 @@ const event = defineEvent({
           });
           await interaction.reply({
             content: "This command is restricted to the bot developer.",
-            ephemeral: true,
+            flags: MessageFlags.Ephemeral,
           });
           return;
         }
@@ -151,7 +152,7 @@ const event = defineEvent({
         if (!interaction.inCachedGuild()) {
           await interaction.reply({
             content: "Admin commands can only be used inside a server.",
-            ephemeral: true,
+            flags: MessageFlags.Ephemeral,
           });
           return;
         }
@@ -166,7 +167,7 @@ const event = defineEvent({
           });
           await interaction.reply({
             content: "You need Administrator permissions to use this command.",
-            ephemeral: true,
+            flags: MessageFlags.Ephemeral,
           });
           return;
         }
@@ -182,7 +183,7 @@ const event = defineEvent({
         if (remaining !== null) {
           await interaction.reply({
             content: `⏳ Please wait **${remaining}s** before using the \`${command.data.name}\` command again.`,
-            ephemeral: true,
+            flags: MessageFlags.Ephemeral,
           });
           return;
         }
@@ -190,8 +191,7 @@ const event = defineEvent({
 
       // Automatic reply deferral helper (prevents 3s interaction timeouts)
       if (command.defer) {
-        const ephemeral = command.defer === "ephemeral";
-        await interaction.deferReply({ ephemeral });
+        await interaction.deferReply(command.defer === "ephemeral" ? { flags: MessageFlags.Ephemeral } : {});
       }
 
       // Command execution with central error capture

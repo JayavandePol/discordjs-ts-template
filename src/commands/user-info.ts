@@ -20,7 +20,7 @@ const command = defineUserCommand({
     const targetMember = interaction.targetMember;
 
     const embed = new EmbedBuilder()
-      .setTitle(`User Profile: ${targetUser.tag}`)
+      .setTitle(`User Profile: ${targetUser.username}`)
       .setThumbnail(targetUser.displayAvatarURL({ size: 256 }))
       .setColor(0x5865f2)
       .addFields(

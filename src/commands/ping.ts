@@ -1,4 +1,4 @@
-import { SlashCommandBuilder } from "discord.js";
+import { MessageFlags, SlashCommandBuilder } from "discord.js";
 import { defineSlashCommand } from "../types/Command.js";
 import { createSuccessEmbed } from "../utils/embeds.js";
 
@@ -15,8 +15,9 @@ const command = defineSlashCommand({
   // Command handler
   async execute(interaction, { logger }) {
     // Reply initially to calculate message round-trip latency
-    const sent = await interaction.reply({ content: "Pinging...", fetchReply: true });
-    const latency = sent.createdTimestamp - interaction.createdTimestamp;
+    const response = await interaction.reply({ content: "Pinging...", withResponse: true });
+    const sent = response.resource?.message;
+    const latency = sent ? sent.createdTimestamp - interaction.createdTimestamp : 0;
     const heartbeat = Math.round(interaction.client.ws.ping);
 
     // Format response with standard success embed

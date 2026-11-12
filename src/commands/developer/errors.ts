@@ -1,4 +1,5 @@
 import {
+  MessageFlags,
   EmbedBuilder,
   SlashCommandBuilder,
 } from "discord.js";
@@ -62,7 +63,7 @@ const command = defineSlashCommand({
     if (!errorStore) {
       await interaction.reply({
         content: "Database is disabled; error tracking storage is unavailable.",
-        ephemeral: true,
+        flags: MessageFlags.Ephemeral,
       });
       return;
     }
@@ -81,7 +82,7 @@ const command = defineSlashCommand({
       const id = interaction.options.getString("id", true);
       const record = await errorStore.getById(id);
       if (!record) {
-        await interaction.reply({ content: `No error record found matching ID \`${id}\`.`, ephemeral: true });
+        await interaction.reply({ content: `No error record found matching ID \`${id}\`.`, flags: MessageFlags.Ephemeral });
         return;
       }
 
@@ -105,7 +106,7 @@ const command = defineSlashCommand({
         embed.addFields({ name: "Stack Trace", value: `\`\`\`\n${truncate(record.stack, 500)}\n\`\`\`` });
       }
 
-      await interaction.reply({ embeds: [embed], ephemeral: true });
+      await interaction.reply({ embeds: [embed], flags: MessageFlags.Ephemeral });
       return;
     }
 
@@ -114,7 +115,7 @@ const command = defineSlashCommand({
       const records = await errorStore.listLatest(20);
 
       if (records.length === 0) {
-        await interaction.reply({ content: "No logged error records found in the database.", ephemeral: true });
+        await interaction.reply({ content: "No logged error records found in the database.", flags: MessageFlags.Ephemeral });
         return;
       }
 

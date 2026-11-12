@@ -11,7 +11,7 @@ const event = defineEvent({
     const { logger, config, commands } = context;
 
     // Log successful authentication and bot tag
-    logger.info(`Ready! Logged in as ${client.user?.tag} (${client.user?.id})`);
+    logger.info(`Ready! Logged in as ${client.user.username} (${client.user?.id})`);
 
     // Guard command registration: Discord rate limits global/guild command PUT endpoints (200 requests/day).
     // In local development with file watchers (like tsx watch / nodemon), deploying on every restart will quickly

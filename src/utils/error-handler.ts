@@ -1,4 +1,5 @@
 import {
+  MessageFlags,
   CommandInteraction,
   MessageComponentInteraction,
   ModalSubmitInteraction,
@@ -69,12 +70,11 @@ export const handleInteractionError = async (
 
     const response = {
       embeds: [new EmbedBuilder().setTitle("Notice").setDescription(message).setColor(0xeeb902)],
-      ephemeral: true,
     };
 
     try {
       if (interaction.deferred || interaction.replied) await interaction.editReply(response);
-      else await interaction.reply(response);
+      else await interaction.reply({ ...response, flags: MessageFlags.Ephemeral });
     } catch (replyError) {
       context.logger.error("Failed to send UserError response", replyError);
     }
@@ -120,13 +120,13 @@ export const handleInteractionError = async (
     components.push(row);
   }
 
-  const response = { embeds: [embed], components, ephemeral: true };
+  const response = { embeds: [embed], components };
 
   try {
     if (interaction.deferred || interaction.replied) {
       await interaction.editReply(response);
     } else {
-      await interaction.reply(response);
+      await interaction.reply({ ...response, flags: MessageFlags.Ephemeral });
     }
   } catch (replyError) {
     context.logger.error("Failed to send error response to user", replyError);

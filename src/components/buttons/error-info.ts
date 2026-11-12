@@ -1,4 +1,4 @@
-import { EmbedBuilder, GuildMember } from "discord.js";
+import { MessageFlags, EmbedBuilder, GuildMember } from "discord.js";
 import { defineButton } from "../../types/Component.js";
 import { Config } from "../../config/config.js";
 
@@ -29,14 +29,14 @@ const button = defineButton({
     if (!errorStore) {
       await interaction.reply({
         content: "Error records are not available because the database is disabled.",
-        ephemeral: true,
+        flags: MessageFlags.Ephemeral,
       });
       return;
     }
 
     const record = await errorStore.getById(id);
     if (!record) {
-      await interaction.reply({ content: "No error record found with that ID.", ephemeral: true });
+      await interaction.reply({ content: "No error record found with that ID.", flags: MessageFlags.Ephemeral });
       return;
     }
 
@@ -49,7 +49,7 @@ const button = defineButton({
     if (!isOwner && !isDev) {
       await interaction.reply({
         content: "You do not have permission to view this error's internal details.",
-        ephemeral: true,
+        flags: MessageFlags.Ephemeral,
       });
       return;
     }
@@ -78,7 +78,7 @@ const button = defineButton({
     try {
       await interaction.reply({
         embeds: [embed],
-        ephemeral: true,
+        flags: MessageFlags.Ephemeral,
       });
     } catch (err) {
       logger.error("Failed to send error detail reply", err);

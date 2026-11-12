@@ -1,6 +1,8 @@
 import {
+  MessageFlags,
   SlashCommandBuilder,
   PermissionFlagsBits,
+  InteractionContextType,
   EmbedBuilder,
 } from "discord.js";
 import { defineSlashCommand } from "../../types/Command.js";
@@ -13,8 +15,8 @@ const command = defineSlashCommand({
     .setDescription("Administrator diagnostics and testing utilities.")
     // Restrict command visibility natively in Discord client to users with Administrator permission
     .setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
-    // Ensure the command cannot be executed inside Direct Messages
-    .setDMPermission(false)
+    // Only usable inside servers (not in DMs or as a user-installed app)
+    .setContexts(InteractionContextType.Guild)
     .addSubcommand((sub) =>
       sub
         .setName("ping")
@@ -37,8 +39,9 @@ const command = defineSlashCommand({
     const subcommand = interaction.options.getSubcommand();
 
     if (subcommand === "ping") {
-      const sent = await interaction.reply({ content: "Running diagnostic check...", fetchReply: true });
-      const latency = sent.createdTimestamp - interaction.createdTimestamp;
+      const response = await interaction.reply({ content: "Running diagnostic check...", withResponse: true });
+      const sent = response.resource?.message;
+      const latency = sent ? sent.createdTimestamp - interaction.createdTimestamp : 0;
       const heartbeat = Math.round(interaction.client.ws.ping);
 
       const embed = createSuccessEmbed("Admin Diagnostic Check", "Guild connectivity test results:")
@@ -55,7 +58,7 @@ const command = defineSlashCommand({
     if (subcommand === "server") {
       const guild = interaction.guild;
       if (!guild) {
-        await interaction.reply({ content: "This subcommand can only be run in a server.", ephemeral: true });
+        await interaction.reply({ content: "This subcommand can only be run in a server.", flags: MessageFlags.Ephemeral });
         return;
       }
 
@@ -69,7 +72,7 @@ const command = defineSlashCommand({
         )
         .setTimestamp();
 
-      await interaction.reply({ embeds: [embed], ephemeral: true });
+      await interaction.reply({ embeds: [embed], flags: MessageFlags.Ephemeral });
       logger.info("Executed /admintest server", { guild: guild.id, user: interaction.user.id });
       return;
     }

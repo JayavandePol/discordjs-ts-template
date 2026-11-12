@@ -38,7 +38,7 @@ const command = defineSlashCommand({
       .setTitle("Bot System Diagnostics")
       .setColor(0x5865f2)
       .addFields(
-        { name: "Bot Account", value: `${client.user?.tag} (\`${client.user?.id}\`)`, inline: true },
+        { name: "Bot Account", value: `${client.user?.username} (\`${client.user?.id}\`)`, inline: true },
         { name: "Gateway Latency", value: `\`${Math.round(ws.ping)} ms\``, inline: true },
         { name: "RAM (Heap Used)", value: `\`${ramMb} MB\``, inline: true },
         { name: "Uptime", value: `<t:${Math.floor(Date.now() / 1000) - uptimeSeconds}:R>`, inline: true },

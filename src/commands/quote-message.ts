@@ -19,7 +19,7 @@ const command = defineMessageCommand({
 
     const embed = new EmbedBuilder()
       .setAuthor({
-        name: targetMessage.author.tag,
+        name: targetMessage.author.displayName,
         iconURL: targetMessage.author.displayAvatarURL(),
       })
       .setDescription(targetMessage.content || "*(No text content)*")
