@@ -1,130 +1,98 @@
-# AI Development Guidelines
+# AGENTS.md
 
-This document provides an overview of the project structure and guidelines for AI assistants to generate high-quality, compatible code for this Discord.js TypeScript bot.
+Guidance for AI coding assistants working in this repository. Humans: see [README.md](README.md).
 
-## Project Structure
+## Stack
 
-The project is a **Discord.js v14** bot built with **TypeScript**, **ES Modules (ESM)**, **tsx**, **Vitest**, and **Multi-Dialect Drizzle ORM** (SQLite, PostgreSQL, MySQL/MariaDB).
+discord.js v14, TypeScript (strict, `noUncheckedIndexedAccess`), ES modules, Node.js 22.12+, Drizzle ORM (SQLite via libSQL, or PostgreSQL), Zod, pino, Vitest, ESLint.
 
-### Directory Layout (`src/`)
+## Commands to run before you finish
 
-*   **`index.ts`**: The entry point. Initializes the client, database, components, cooldowns, and loads handlers.
-*   **`sharding.ts`**: Alternative entry point for production (1000+ servers). Uses `ShardingManager`.
-*   **`commands/`**: Contains slash command and context menu definitions.
-    *   **`developer/`**: Commands restricted to developers in `DEV_USER_IDS` or `DEV_ROLE_ID`.
-    *   **`administrator/`**: Commands restricted to guild administrators (`setDefaultMemberPermissions`).
-    *   **`user-info.ts`**: Example User Context Menu command.
-    *   **`quote-message.ts`**: Example Message Context Menu command.
-*   **`components/`**: Modular interactive component handlers.
-    *   **`buttons/`**: Button handlers (e.g. `error-info.ts`).
-    *   **`selectMenus/`**: Select menu handlers.
-    *   **`modals/`**: Modal submission handlers.
-*   **`events/`**: Contains event handlers (e.g., `ready`, `interactionCreate`).
-*   **`core/`**: Core logic for the bot framework.
-    *   `command-registry.ts`: Loads commands recursively from `commands/`.
-    *   `component-registry.ts`: Loads component handlers from `components/`.
-    *   `command-publisher.ts`: Registers commands with the Discord API (guild or global).
-    *   `event-registry.ts`: Loads and registers events from `events/`.
-*   **`types/`**: TypeScript definitions.
-    *   `Command.ts`: Interface for slash and context menu commands (supports `cooldown`, `defer`, `autocomplete`).
-    *   `Component.ts`: Handler interfaces for `ButtonHandler`, `SelectMenuHandler`, and `ModalHandler`.
-    *   `Event.ts`: Interface for event handlers.
-    *   `Context.ts`: The `BotContext` object passed to commands/events/components.
-    *   `ErrorMeta.ts`: Metadata shape attached to error records.
-*   **`utils/`**: Utility functions.
-    *   `logger.ts`: Custom JSON logger (use this instead of `console`).
-    *   `embeds.ts`: Standardized embed builder helpers (`createSuccessEmbed`, `createErrorEmbed`, etc.).
-    *   `paginator.ts`: Button-driven embed pagination utility (`paginate()`).
-    *   `cooldown-manager.ts`: Per-user command cooldown tracker.
-    *   `error-reporter.ts`: Captures errors with a deterministic hash, logs them, and stores to DB.
-    *   `error-log.ts`: Sends error embeds to a designated error log channel with throttling.
-    *   `id.ts`: Sanitizes stack traces and generates unique error IDs.
-*   **`data/`**: Database layer (Drizzle ORM).
-    *   `schema/`: Dialect-specific table schemas (`sqlite.ts`, `pg.ts`, `mysql.ts`).
-    *   `db.ts`: Multi-dialect Drizzle database connection factory (`initDatabase`).
-    *   `error-store.ts`: Store class wrapping error logging and queries across all dialects.
-*   **`config/`**: Configuration loading and Zod environment variable validation (`src/config/config.ts`).
-*   **`scripts/`**: CLI utilities (e.g., `register-commands.ts`).
-*   **`tests/`**: Automated unit tests run via `vitest`.
+```bash
+npm run typecheck
+npm run lint
+npm test
+```
 
----
+All three must pass. CI runs them on Node 22, 24 and 26, plus `npm run build` and a check that `drizzle/` matches the schema.
 
-## AI Behavior & Reasoning Strategy
+## Layout
 
-When acting as a developer for this project, adopt the following mindset:
+- `src/index.ts`: startup. Config, logger, client listeners, database, process error policy, login.
+- `src/commands/`: one command per file. `administrator/` and `developer/` set the minimum access level.
+- `src/components/{buttons,selectMenus,modals}/`: component handlers matched by customId.
+- `src/events/`: `interactionCreate.ts` routes every interaction; `ready.ts`.
+- `src/core/access.ts`: the only access check. `module-loader.ts` loads and validates modules; `command-publisher.ts` registers commands.
+- `src/data/`: `database-url.ts` (DATABASE_URL resolution shared with `drizzle.config.ts`), `db.ts` (connect + migrate), `schema/sqlite.ts` and `schema/pg.ts`, `error-store.ts`.
+- `src/utils/`: `logger.ts`, `reply.ts` (`sendEphemeral`), `error-handler.ts`, `paginator.ts`, `embeds.ts`, `user-error.ts`.
+- `tests/`: Vitest. `tests/helpers/fakes.ts` has fake interactions and contexts.
 
-### 1. Problem Solving & Thinking Process
-*   **Scalability First**:
-    *   **Sharding**: For 1000+ servers, use `src/sharding.ts` as the entry point instead of `src/index.ts`.
-    *   **Database**: SQLite is for zero-config development. PostgreSQL and MySQL/MariaDB are fully supported by setting `DATABASE_URL`.
-    *   **State**: Never store state in memory (variables/Maps) that needs to persist across restarts. Use Drizzle ORM.
-*   **User Experience & Interactive UI**:
-    *   Use `src/components/` for buttons, select menus, and modals instead of cluttering command files.
-    *   Use `paginate()` from `src/utils/paginator.ts` whenever displaying lists of items.
-    *   Use `src/utils/embeds.ts` for clean, consistent embeds.
-    *   Use `UserError` for expected validation/business logic rejections.
-    *   Set `cooldown` on commands susceptible to spam.
-    *   Set `defer: true` or `defer: "ephemeral"` for operations that may take >2.5 seconds.
+## Rules
 
-### 2. Requirements for AI Prompts & Code Generation
+1. **ESM imports** use the `.js` extension: `import { defineSlashCommand } from "../types/Command.js";`. Use `import type` for type-only imports.
+2. **Define modules with the helpers** (`defineSlashCommand`, `defineUserCommand`, `defineMessageCommand`, `defineEvent`, `defineButton`, `defineSelectMenu`, `defineModal`) and `export default` the result.
+3. **Ephemeral replies** use `flags: MessageFlags.Ephemeral`, never `ephemeral: true`. Use `withResponse: true` instead of `fetchReply`, and `setContexts(...)` instead of `setDMPermission`.
+4. **Never leave a promise floating.** Await it, or `void promise.catch(...)` in listeners. ESLint enforces `no-floating-promises` and `no-misused-promises`.
+5. **Errors**: let unexpected errors propagate; the router reports them. Throw `UserError` for expected failures the user should read. Never `try/catch` just to swallow.
+6. **Access**: put restricted commands in `administrator/` or `developer/`, or set `access`. Admin commands may set `permissions`. Don't write ad-hoc permission checks; use `checkAccess` from `core/access.ts`.
+7. **Long work**: set `defer: true` or `defer: "ephemeral"` on the command, then use `editReply`.
+8. **Logging**: use `context.logger` (`logger.info("message", { meta })`), not `console`. Pass errors as `{ err: error }` or as the second argument.
+9. **No user content in error metadata**: don't put option values, modal text or message content into `ErrorMeta` or logs.
+10. **Database changes**: edit both schemas (or remove the dialect a fork doesn't use), then run `npm run db:generate` for each dialect and commit `drizzle/`. Never create tables by hand at runtime.
+11. **State**: keep durable state in the database. In-memory maps (cooldowns, throttles) reset on restart and are per process.
+12. **customIds** starting with `collector:` are reserved for message collectors and are never routed to handlers.
 
-1.  **Language & Module System**:
-    *   Use **TypeScript** and **ES Modules** (`import` / `export default`).
-    *   Always include the `.js` extension for local imports (`import { Command } from "../types/Command.js"`).
-    *   Do **not** use `require()`.
+## Templates
 
-2.  **Slash Command Structure**:
-    ```typescript
-    import { SlashCommandBuilder } from "discord.js";
-    import { Command } from "../types/Command.js";
-    import { createSuccessEmbed } from "../utils/embeds.js";
+Slash command:
 
-    const command: Command = {
-      data: new SlashCommandBuilder()
-        .setName("name")
-        .setDescription("description"),
-      cooldown: 5, // optional cooldown in seconds
-      defer: false, // optional auto-deferral (true | "ephemeral")
-      execute: async (interaction, context) => {
-        const embed = createSuccessEmbed("Title", "Description");
-        await interaction.reply({ embeds: [embed] });
-      }
-    };
-    export default command;
-    ```
+```ts
+import { MessageFlags, SlashCommandBuilder } from "discord.js";
+import { defineSlashCommand } from "../types/Command.js";
+import { createSuccessEmbed } from "../utils/embeds.js";
 
-3.  **Context Menu Command Structure**:
-    ```typescript
-    import { ContextMenuCommandBuilder, ApplicationCommandType, UserContextMenuCommandInteraction } from "discord.js";
-    import { Command } from "../types/Command.js";
+export default defineSlashCommand({
+  data: new SlashCommandBuilder().setName("name").setDescription("description"),
+  cooldown: 5,
+  async execute(interaction, { logger }) {
+    await interaction.reply({ embeds: [createSuccessEmbed("Title", "Description")], flags: MessageFlags.Ephemeral });
+    logger.info("Handled /name", { user: interaction.user.id });
+  },
+});
+```
 
-    const command: Command<UserContextMenuCommandInteraction> = {
-      data: new ContextMenuCommandBuilder()
-        .setName("User Info")
-        .setType(ApplicationCommandType.User),
-      execute: async (interaction, context) => {
-        // handle interaction
-      }
-    };
-    export default command;
-    ```
+User context menu command:
 
-4.  **Button Handler Structure**:
-    ```typescript
-    import { ButtonHandler } from "../../types/Component.js";
+```ts
+import { ApplicationCommandType, ContextMenuCommandBuilder } from "discord.js";
+import { defineUserCommand } from "../types/Command.js";
 
-    const button: ButtonHandler = {
-      customId: "myfeature:action", // string or RegExp (/^myfeature:.+$/)
-      execute: async (interaction, context) => {
-        await interaction.reply({ content: "Handled!", ephemeral: true });
-      }
-    };
-    export default button;
-    ```
+export default defineUserCommand({
+  data: new ContextMenuCommandBuilder().setName("User Info").setType(ApplicationCommandType.User),
+  async execute(interaction) {
+    await interaction.reply(`That is ${interaction.targetUser.username}.`);
+  },
+});
+```
 
-5.  **Embed Paginator**:
-    ```typescript
-    import { paginate } from "../utils/paginator.js";
+Button handler:
 
-    await paginate(interaction, [embed1, embed2, embed3], { timeout: 60_000, ephemeral: true });
-    ```
+```ts
+import { MessageFlags } from "discord.js";
+import { defineButton } from "../../types/Component.js";
+
+export default defineButton({
+  customId: /^feature:action:.+$/,
+  async execute(interaction) {
+    await interaction.reply({ content: "Handled!", flags: MessageFlags.Ephemeral });
+  },
+});
+```
+
+Paginated list:
+
+```ts
+import { paginate } from "../utils/paginator.js";
+
+await paginate(interaction, [page1, page2, page3], { ephemeral: true });
+```
