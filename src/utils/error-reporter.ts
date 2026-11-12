@@ -1,11 +1,13 @@
 import { Logger } from "./logger.js";
-import { generateErrorHash, cleanStackTrace } from "./id.js";
-import { ErrorStore } from "../data/error-store.js";
+import { cleanStackTrace, errorFingerprint, generateReportId } from "./id.js";
+import type { ErrorStore } from "../data/error-store.js";
 import { ErrorMeta } from "../types/ErrorMeta.js";
 
-// Result summary of a captured error
 export type ErrorReport = {
+  // Random per-occurrence ID shown to the user
   id: string;
+  // Groups occurrences of the same bug
+  fingerprint: string;
   userMessage: string;
 };
 
@@ -20,27 +22,21 @@ export const captureError = async (
   errorStore?: ErrorStore,
   meta?: ErrorMeta
 ): Promise<ErrorReport> => {
-  const id = generateErrorHash(error, context);
+  const id = generateReportId();
+  const fingerprint = errorFingerprint(error, context);
 
-  const payload =
-    error instanceof Error
-      ? { name: error.name, message: error.message, stack: error.stack ? cleanStackTrace(error.stack) : undefined }
-      : { message: String(error) };
-
-  logger.error(`Error captured (${context})`, { id, meta, err: error });
+  logger.error(`Error captured (${context})`, { id, fingerprint, meta, err: error });
 
   if (errorStore) {
     try {
-      await errorStore.recordError({
+      await errorStore.record({
         id,
+        fingerprint,
         context,
-        message: payload.message,
-        name: "name" in payload ? payload.name : undefined,
-        stack: "stack" in payload ? payload.stack : undefined,
+        name: error instanceof Error ? error.name : undefined,
+        message: error instanceof Error ? error.message : String(error),
+        stack: error instanceof Error && error.stack ? cleanStackTrace(error.stack) : undefined,
         meta,
-        guildId: meta?.guildId,
-        userId: meta?.userId,
-        command: meta?.command,
       });
     } catch (storeError) {
       logger.error("Failed to store error report", { id, err: storeError });
@@ -49,6 +45,7 @@ export const captureError = async (
 
   return {
     id,
+    fingerprint,
     userMessage: `An unexpected error occurred. Please report this ID to the support team: **${id}**`,
   };
 };

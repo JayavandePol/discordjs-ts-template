@@ -24,7 +24,7 @@ const isSendableChannel = (
   );
 };
 
-// Rate-limiting map for error notification spam protection: ErrorID -> { count, timestamp }
+// Spam protection for repeated errors: fingerprint (same bug) -> { count, timestamp }
 const throttleMap = new Map<string, { count: number; timestamp: number }>();
 const THROTTLE_LIMIT = 5;
 const THROTTLE_WINDOW_MS = 60 * 1000; // 60-second sliding window
@@ -41,7 +41,8 @@ export const notifyErrorLogChannel = async (
   if (!channelId) return;
 
   const now = Date.now();
-  const throttleRecord = throttleMap.get(params.report.id);
+  const key = params.report.fingerprint;
+  const throttleRecord = throttleMap.get(key);
 
   // Apply throttle check
   if (throttleRecord) {
@@ -49,22 +50,22 @@ export const notifyErrorLogChannel = async (
       throttleRecord.count++;
       if (throttleRecord.count > THROTTLE_LIMIT) {
         context.logger.warn(
-          `Throttled error log to Discord channel for ID ${params.report.id} (seen ${throttleRecord.count} times in 60s)`
+          `Throttled error log for fingerprint ${key} (seen ${throttleRecord.count} times in 60s)`
         );
         return; // Suppress notification to avoid channel spam
       }
     } else {
-      throttleMap.set(params.report.id, { count: 1, timestamp: now });
+      throttleMap.set(key, { count: 1, timestamp: now });
     }
   } else {
-    throttleMap.set(params.report.id, { count: 1, timestamp: now });
+    throttleMap.set(key, { count: 1, timestamp: now });
   }
 
   // Periodic throttle map cleanup
   if (Math.random() < 0.1) {
-    for (const [key, value] of throttleMap.entries()) {
+    for (const [entryKey, value] of throttleMap.entries()) {
       if (now - value.timestamp > THROTTLE_WINDOW_MS) {
-        throttleMap.delete(key);
+        throttleMap.delete(entryKey);
       }
     }
   }

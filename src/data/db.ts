@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { sql } from "drizzle-orm";
 import type { LibSQLDatabase } from "drizzle-orm/libsql";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
@@ -12,6 +13,9 @@ import * as pgSchema from "./schema/pg.js";
 
 export type { DatabaseDialect } from "./database-url.js";
 
+// drizzle/sqlite and drizzle/pg, from both src/data and dist/data
+const MIGRATIONS_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../drizzle");
+
 export type DatabaseConnection =
   | { dialect: "sqlite"; db: LibSQLDatabase<typeof sqliteSchema>; close: () => Promise<void> }
   | { dialect: "postgres"; db: PostgresJsDatabase<typeof pgSchema>; close: () => Promise<void> };
@@ -22,7 +26,7 @@ const queryLogger = (logger: Logger): DrizzleLogger => ({
 });
 
 /**
- * Connects to the database from DATABASE_URL and checks it answers before returning.
+ * Connects to the database from DATABASE_URL, checks it answers and applies pending migrations.
  * Drivers are imported on demand, so an unused driver is never loaded.
  */
 export const initDatabase = async (config: Config, logger: Logger): Promise<DatabaseConnection | null> => {
@@ -46,6 +50,15 @@ export const initDatabase = async (config: Config, logger: Logger): Promise<Data
     await connection.close().catch(() => undefined);
     throw new Error(`Could not reach the database: ${(error as Error).message}`, { cause: error });
   }
+
+  // Bring the schema up to date before the bot starts handling interactions
+  try {
+    await runMigrations(connection);
+  } catch (error) {
+    await connection.close().catch(() => undefined);
+    throw new Error(`Database migration failed: ${(error as Error).message}`, { cause: error });
+  }
+  logger.info("Database migrations are up to date.");
 
   return connection;
 };
@@ -76,28 +89,21 @@ const connectSqlite = async (
   // Write-ahead logging lets reads continue while a write is in progress (local files only)
   if (target.filePath) await client.execute("PRAGMA journal_mode = WAL;");
 
-  await client.execute(`
-    CREATE TABLE IF NOT EXISTS errors (
-      id TEXT PRIMARY KEY,
-      timestamp TEXT NOT NULL,
-      severity TEXT NOT NULL DEFAULT 'error',
-      context TEXT NOT NULL,
-      name TEXT,
-      message TEXT NOT NULL,
-      stack TEXT,
-      guild_id TEXT,
-      user_id TEXT,
-      command TEXT,
-      meta TEXT,
-      occurrences INTEGER NOT NULL DEFAULT 1
-    );
-  `);
-
   return {
     dialect: "sqlite",
     db: drizzle(client, { schema: sqliteSchema, logger }),
     close: async () => client.close(),
   };
+};
+
+const runMigrations = async (connection: DatabaseConnection) => {
+  if (connection.dialect === "postgres") {
+    const { migrate } = await import("drizzle-orm/postgres-js/migrator");
+    await migrate(connection.db, { migrationsFolder: path.join(MIGRATIONS_ROOT, "pg") });
+  } else {
+    const { migrate } = await import("drizzle-orm/libsql/migrator");
+    await migrate(connection.db, { migrationsFolder: path.join(MIGRATIONS_ROOT, "sqlite") });
+  }
 };
 
 export const describeDatabase = (dialect: DatabaseDialect) => (dialect === "postgres" ? "PostgreSQL" : "SQLite");

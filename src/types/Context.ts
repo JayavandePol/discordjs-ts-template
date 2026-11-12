@@ -2,7 +2,7 @@ import { Client } from "discord.js";
 import { Config } from "../config/config.js";
 import { Logger } from "../utils/logger.js";
 import { Command } from "./Command.js";
-import { ErrorStore } from "../data/error-store.js";
+import type { ErrorStore } from "../data/error-store.js";
 import { CooldownManager } from "../utils/cooldown-manager.js";
 import { ComponentRegistry } from "../core/component-registry.js";
 

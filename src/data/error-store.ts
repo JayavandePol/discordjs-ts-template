@@ -1,228 +1,172 @@
-import { eq, desc, lt, sql } from "drizzle-orm";
-import { DatabaseConnection } from "./db.js";
-import { sqliteErrors } from "./schema/sqlite.js";
-import { pgErrors } from "./schema/pg.js";
-import { ErrorMeta } from "../types/ErrorMeta.js";
+import { desc, eq, like, lt, or, sql } from "drizzle-orm";
+import type { DatabaseConnection } from "./db.js";
+import { errorEvents as sqliteEvents } from "./schema/sqlite.js";
+import { errorEvents as pgEvents } from "./schema/pg.js";
+import type { ErrorMeta } from "../types/ErrorMeta.js";
 
-// Type definition for an error record
-export type ErrorRecord = {
+export type ErrorEventInput = {
   id: string;
-  timestamp: string;
-  severity: string;
+  fingerprint: string;
   context: string;
   name?: string;
   message: string;
   stack?: string;
-  guildId?: string;
-  userId?: string;
-  command?: string;
   meta?: ErrorMeta;
+  createdAt?: Date;
+};
+
+export type ErrorEvent = Required<Pick<ErrorEventInput, "id" | "fingerprint" | "context" | "message">> & {
+  name?: string;
+  stack?: string;
+  meta?: ErrorMeta;
+  createdAt: Date;
+  // How often this fingerprint (the same bug) has been seen in total
   occurrences: number;
 };
 
 /**
- * Universal multi-dialect repository class wrapping Drizzle ORM queries
- * across SQLite and PostgreSQL.
+ * Stores error reports. Every occurrence is its own row with a random ID (what users quote);
+ * rows with the same fingerprint are the same bug.
  */
-export class ErrorStore {
-  constructor(private db: DatabaseConnection) {}
-
-  /**
-   * Persists an error report to the active database dialect.
-   * If an error with the same deterministic ID already exists, increments occurrences and updates timestamp.
-   */
-  async recordError(
-    payload: Omit<ErrorRecord, "timestamp" | "severity" | "occurrences"> & {
-      timestamp?: string;
-      severity?: string;
-    }
-  ): Promise<void> {
-    const timestamp = payload.timestamp ?? new Date().toISOString();
-    const severity = payload.severity ?? "error";
-
-    // 1. SQLite execution (better-sqlite3)
-    if (this.db.dialect === "sqlite") {
-      await this.db.db
-        .insert(sqliteErrors)
-        .values({
-          id: payload.id,
-          timestamp,
-          severity,
-          context: payload.context,
-          name: payload.name ?? null,
-          message: payload.message,
-          stack: payload.stack ?? null,
-          guildId: payload.guildId ?? null,
-          userId: payload.userId ?? null,
-          command: payload.command ?? null,
-          meta: payload.meta ? JSON.stringify(payload.meta) : null,
-          occurrences: 1,
-        })
-        .onConflictDoUpdate({
-          target: sqliteErrors.id,
-          set: {
-            timestamp,
-            occurrences: sql`${sqliteErrors.occurrences} + 1`,
-            meta: payload.meta ? JSON.stringify(payload.meta) : null,
-            userId: payload.userId ?? undefined,
-            guildId: payload.guildId ?? undefined,
-            command: payload.command ?? undefined,
-            context: payload.context,
-          },
-        });
-      return;
-    }
-
-    // 2. PostgreSQL execution
-    if (this.db.dialect === "postgres") {
-      await this.db.db
-        .insert(pgErrors)
-        .values({
-          id: payload.id,
-          timestamp,
-          severity,
-          context: payload.context,
-          name: payload.name ?? null,
-          message: payload.message,
-          stack: payload.stack ?? null,
-          guildId: payload.guildId ?? null,
-          userId: payload.userId ?? null,
-          command: payload.command ?? null,
-          meta: payload.meta ?? null,
-          occurrences: 1,
-        })
-        .onConflictDoUpdate({
-          target: pgErrors.id,
-          set: {
-            timestamp,
-            occurrences: sql`${pgErrors.occurrences} + 1`,
-            meta: payload.meta ?? null,
-            userId: payload.userId ?? undefined,
-            guildId: payload.guildId ?? undefined,
-            command: payload.command ?? undefined,
-            context: payload.context,
-          },
-        });
-      return;
-    }
-  }
-
-  /**
-   * Retrieve a specific error record by its unique 8-character ID.
-   */
-  async getById(id: string): Promise<ErrorRecord | null> {
-    if (this.db.dialect === "sqlite") {
-      const [row] = await this.db.db
-        .select()
-        .from(sqliteErrors)
-        .where(eq(sqliteErrors.id, id))
-        .limit(1);
-      return row ? this.hydrate(row) : null;
-    }
-
-    if (this.db.dialect === "postgres") {
-      const [row] = await this.db.db
-        .select()
-        .from(pgErrors)
-        .where(eq(pgErrors.id, id))
-        .limit(1);
-      return row ? this.hydrate(row) : null;
-    }
-
-    return null;
-  }
-
-  /**
-   * Retrieve the latest logged errors ordered by timestamp descending.
-   */
-  async listLatest(limit = 10): Promise<ErrorRecord[]> {
-    if (this.db.dialect === "sqlite") {
-      const rows = await this.db.db
-        .select()
-        .from(sqliteErrors)
-        .orderBy(desc(sqliteErrors.timestamp))
-        .limit(limit);
-      return rows.map((row) => this.hydrate(row));
-    }
-
-    if (this.db.dialect === "postgres") {
-      const rows = await this.db.db
-        .select()
-        .from(pgErrors)
-        .orderBy(desc(pgErrors.timestamp))
-        .limit(limit);
-      return rows.map((row) => this.hydrate(row));
-    }
-
-    return [];
-  }
-
-  /**
-   * Delete error entries older than a specified number of days.
-   */
-  async prune(days: number): Promise<number> {
-    const cutoff = new Date();
-    cutoff.setDate(cutoff.getDate() - days);
-    const cutoffIso = cutoff.toISOString();
-
-    if (this.db.dialect === "sqlite") {
-      const res = await this.db.db
-        .delete(sqliteErrors)
-        .where(lt(sqliteErrors.timestamp, cutoffIso));
-      return res.rowsAffected;
-    }
-
-    if (this.db.dialect === "postgres") {
-      const res = await this.db.db
-        .delete(pgErrors)
-        .where(lt(pgErrors.timestamp, cutoffIso));
-      return res.length;
-    }
-
-    return 0;
-  }
-
-  /**
-   * Hydrates raw SQL row records into standardized ErrorRecord objects.
-   */
-  private hydrate(row: {
-    id: string;
-    timestamp: string;
-    severity: string;
-    context: string;
-    name: string | null;
-    message: string;
-    stack: string | null;
-    guildId: string | null;
-    userId: string | null;
-    command: string | null;
-    meta: unknown;
-    occurrences: number;
-  }): ErrorRecord {
-    let parsedMeta: ErrorMeta | undefined;
-    if (typeof row.meta === "string") {
-      try {
-        parsedMeta = JSON.parse(row.meta);
-      } catch {
-        parsedMeta = undefined;
-      }
-    } else if (typeof row.meta === "object" && row.meta !== null) {
-      parsedMeta = row.meta as ErrorMeta;
-    }
-
-    return {
-      id: row.id,
-      timestamp: row.timestamp,
-      severity: row.severity,
-      context: row.context,
-      name: row.name ?? undefined,
-      message: row.message,
-      stack: row.stack ?? undefined,
-      guildId: row.guildId ?? undefined,
-      userId: row.userId ?? undefined,
-      command: row.command ?? undefined,
-      meta: parsedMeta,
-      occurrences: row.occurrences,
-    };
-  }
+export interface ErrorStore {
+  record(event: ErrorEventInput): Promise<void>;
+  getById(id: string): Promise<ErrorEvent | null>;
+  listLatest(limit: number): Promise<ErrorEvent[]>;
+  // Matches the start of an ID or any part of the context label (for autocomplete)
+  search(query: string, limit: number): Promise<ErrorEvent[]>;
+  // Deletes reports created before `cutoff`; returns how many were removed
+  prune(cutoff: Date): Promise<number>;
 }
+
+type Row = {
+  id: string;
+  fingerprint: string;
+  createdAt: Date;
+  context: string;
+  name: string | null;
+  message: string;
+  stack: string | null;
+  meta: ErrorMeta | null;
+  occurrences: number;
+};
+
+const toEvent = (row: Row): ErrorEvent => ({
+  id: row.id,
+  fingerprint: row.fingerprint,
+  createdAt: row.createdAt,
+  context: row.context,
+  name: row.name ?? undefined,
+  message: row.message,
+  stack: row.stack ?? undefined,
+  meta: row.meta ?? undefined,
+  occurrences: row.occurrences,
+});
+
+const toValues = (event: ErrorEventInput) => ({
+  id: event.id,
+  fingerprint: event.fingerprint,
+  createdAt: event.createdAt ?? new Date(),
+  context: event.context,
+  name: event.name ?? null,
+  message: event.message,
+  stack: event.stack ?? null,
+  guildId: event.meta?.guildId ?? null,
+  userId: event.meta?.userId ?? null,
+  channelId: event.meta?.channelId ?? null,
+  command: event.meta?.command ?? null,
+  meta: event.meta ?? null,
+});
+
+// Occurrences of the same fingerprint. Written out in full: drizzle leaves the outer column
+// unqualified in single-table selects, which would make it match the inner alias.
+const occurrencesColumn = () =>
+  sql<number>`(select count(*) from "error_events" e2 where e2."fingerprint" = "error_events"."fingerprint")`.mapWith(Number);
+
+// Wildcards in the search text would match everything; IDs and context labels never contain them
+const escapeLike = (value: string) => value.replace(/[%_]/g, "");
+
+const sqliteStore = (db: Extract<DatabaseConnection, { dialect: "sqlite" }>["db"]): ErrorStore => {
+  const t = sqliteEvents;
+  const columns = {
+    id: t.id,
+    fingerprint: t.fingerprint,
+    createdAt: t.createdAt,
+    context: t.context,
+    name: t.name,
+    message: t.message,
+    stack: t.stack,
+    meta: t.meta,
+    occurrences: occurrencesColumn(),
+  };
+  const select = () => db.select(columns).from(t);
+
+  return {
+    async record(event) {
+      await db.insert(t).values(toValues(event));
+    },
+    async getById(id) {
+      const [row] = await select().where(eq(t.id, id)).limit(1);
+      return row ? toEvent(row) : null;
+    },
+    async listLatest(limit) {
+      return (await select().orderBy(desc(t.createdAt)).limit(limit)).map(toEvent);
+    },
+    async search(query, limit) {
+      const q = escapeLike(query.toLowerCase());
+      const rows = await select()
+        .where(or(like(t.id, `${q}%`), sql`lower(${t.context}) like ${`%${q}%`}`))
+        .orderBy(desc(t.createdAt))
+        .limit(limit);
+      return rows.map(toEvent);
+    },
+    async prune(cutoff) {
+      const result = await db.delete(t).where(lt(t.createdAt, cutoff));
+      return result.rowsAffected;
+    },
+  };
+};
+
+const pgStore = (db: Extract<DatabaseConnection, { dialect: "postgres" }>["db"]): ErrorStore => {
+  const t = pgEvents;
+  const columns = {
+    id: t.id,
+    fingerprint: t.fingerprint,
+    createdAt: t.createdAt,
+    context: t.context,
+    name: t.name,
+    message: t.message,
+    stack: t.stack,
+    meta: t.meta,
+    occurrences: occurrencesColumn(),
+  };
+  const select = () => db.select(columns).from(t);
+
+  return {
+    async record(event) {
+      await db.insert(t).values(toValues(event));
+    },
+    async getById(id) {
+      const [row] = await select().where(eq(t.id, id)).limit(1);
+      return row ? toEvent(row) : null;
+    },
+    async listLatest(limit) {
+      return (await select().orderBy(desc(t.createdAt)).limit(limit)).map(toEvent);
+    },
+    async search(query, limit) {
+      const q = escapeLike(query.toLowerCase());
+      const rows = await select()
+        .where(or(like(t.id, `${q}%`), sql`lower(${t.context}) like ${`%${q}%`}`))
+        .orderBy(desc(t.createdAt))
+        .limit(limit);
+      return rows.map(toEvent);
+    },
+    async prune(cutoff) {
+      // postgres.js only reports rows for RETURNING queries, so count the returned IDs
+      const deleted = await db.delete(t).where(lt(t.createdAt, cutoff)).returning({ id: t.id });
+      return deleted.length;
+    },
+  };
+};
+
+export const createErrorStore = (connection: DatabaseConnection): ErrorStore =>
+  connection.dialect === "postgres" ? pgStore(connection.db) : sqliteStore(connection.db);

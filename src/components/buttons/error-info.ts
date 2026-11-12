@@ -46,7 +46,7 @@ const button = defineButton({
       .setTitle(`Error Details (${record.id})`)
       .setDescription(lines.join("\n"))
       .setColor(EmbedColors.Error)
-      .setTimestamp(new Date(record.timestamp));
+      .setTimestamp(record.createdAt);
 
     await interaction.reply({ embeds: [embed], flags: MessageFlags.Ephemeral });
   },

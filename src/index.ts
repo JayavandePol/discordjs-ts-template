@@ -6,8 +6,8 @@ import { registerEvents } from "./core/event-registry.js";
 import { BotContext } from "./types/Context.js";
 import { Logger } from "./utils/logger.js";
 import { captureError } from "./utils/error-reporter.js";
-import { initDatabase, DatabaseConnection } from "./data/db.js";
-import { ErrorStore } from "./data/error-store.js";
+import { describeDatabase, initDatabase, DatabaseConnection } from "./data/db.js";
+import { createErrorStore } from "./data/error-store.js";
 import { CooldownManager } from "./utils/cooldown-manager.js";
 
 // 1. Load and validate environment variables with Zod
@@ -33,9 +33,9 @@ const components = new ComponentRegistry(logger);
 await components.loadAll();
 
 const dbConnection: DatabaseConnection | null = await initDatabase(config, logger);
-const errorStore = dbConnection ? new ErrorStore(dbConnection) : undefined;
+const errorStore = dbConnection ? createErrorStore(dbConnection) : undefined;
 if (dbConnection) {
-  logger.info(`Database connected successfully using ${dbConnection.dialect.toUpperCase()}.`);
+  logger.info(`Database ready (${describeDatabase(dbConnection.dialect)}).`);
 }
 
 const cooldowns = new CooldownManager();
