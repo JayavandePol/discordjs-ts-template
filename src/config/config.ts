@@ -1,5 +1,6 @@
 import "dotenv/config";
 import { z } from "zod";
+import { resolveDatabase, type DatabaseTarget } from "../data/database-url.js";
 
 // Unset and blank values (`GUILD_ID=`) are both treated as "not configured"
 const optional = <T extends z.ZodType>(schema: T) =>
@@ -34,7 +35,8 @@ const envSchema = z.object({
 
   DB_ENABLED: flag(true),
   DATABASE_URL: optional(z.string()),
-  DB_STORAGE: optional(z.string()).transform((value) => value ?? "./data/database.sqlite"),
+  // Only for remote libSQL / Turso databases
+  DATABASE_AUTH_TOKEN: optional(z.string()),
   DB_LOGGING: flag(false),
 });
 
@@ -51,8 +53,8 @@ export type Config = {
   autoRegisterCommands: boolean;
   database: {
     enabled: boolean;
-    url?: string;
-    storage: string;
+    target: DatabaseTarget;
+    authToken?: string;
     logging: boolean;
   };
 };
@@ -73,6 +75,14 @@ export const loadConfig = (env: NodeJS.ProcessEnv = process.env): Config => {
   }
 
   const values = parsed.data;
+
+  let target: DatabaseTarget;
+  try {
+    target = resolveDatabase(values.DATABASE_URL);
+  } catch (error) {
+    throw new Error(`\n[Config Error] Invalid environment configuration:\n  - DATABASE_URL: ${(error as Error).message}\n`);
+  }
+
   return {
     token: values.DISCORD_TOKEN,
     applicationId: values.APPLICATION_ID,
@@ -86,8 +96,8 @@ export const loadConfig = (env: NodeJS.ProcessEnv = process.env): Config => {
     autoRegisterCommands: values.AUTO_REGISTER_COMMANDS,
     database: {
       enabled: values.DB_ENABLED,
-      url: values.DATABASE_URL,
-      storage: values.DB_STORAGE,
+      target,
+      authToken: values.DATABASE_AUTH_TOKEN,
       logging: values.DB_LOGGING,
     },
   };

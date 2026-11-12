@@ -1,48 +1,25 @@
 import "dotenv/config";
 import { defineConfig } from "drizzle-kit";
+import { resolveDatabase } from "./src/data/database-url.js";
 
-// Detect active database dialect from environment
-const getDialectConfig = () => {
-  const url = process.env.DATABASE_URL?.toLowerCase().trim() || "";
+// Same DATABASE_URL resolution as the bot (src/data/database-url.ts), so drizzle-kit and the
+// bot always use the same database. Each dialect keeps its own migrations folder.
+const target = resolveDatabase(process.env.DATABASE_URL);
 
-  if (url.startsWith("postgres://") || url.startsWith("postgresql://")) {
-    return {
-      dialect: "postgresql" as const,
+export default target.dialect === "postgres"
+  ? defineConfig({
+      dialect: "postgresql",
       schema: "./src/data/schema/pg.ts",
-      dbCredentials: {
-        url: process.env.DATABASE_URL!,
-      },
-    };
-  }
-
-  if (url.startsWith("mysql://") || url.startsWith("mariadb://")) {
-    return {
-      dialect: "mysql" as const,
-      schema: "./src/data/schema/mysql.ts",
-      dbCredentials: {
-        url: process.env.DATABASE_URL!,
-      },
-    };
-  }
-
-  // Default to SQLite
-  const storage = process.env.DB_STORAGE || "./data/database.sqlite";
-  return {
-    dialect: "sqlite" as const,
-    schema: "./src/data/schema/sqlite.ts",
-    dbCredentials: {
-      url: storage,
-    },
-  };
-};
-
-const config = getDialectConfig();
-
-export default defineConfig({
-  schema: config.schema,
-  out: "./drizzle",
-  dialect: config.dialect,
-  dbCredentials: config.dbCredentials,
-  verbose: true,
-  strict: true,
-});
+      out: "./drizzle/pg",
+      dbCredentials: { url: target.url },
+      verbose: true,
+      strict: true,
+    })
+  : defineConfig({
+      dialect: target.url.startsWith("file:") || target.url === ":memory:" ? "sqlite" : "turso",
+      schema: "./src/data/schema/sqlite.ts",
+      out: "./drizzle/sqlite",
+      dbCredentials: { url: target.url, authToken: process.env.DATABASE_AUTH_TOKEN },
+      verbose: true,
+      strict: true,
+    });

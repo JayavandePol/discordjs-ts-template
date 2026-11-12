@@ -52,3 +52,13 @@ describe("loadConfig", () => {
     expect(() => loadConfig({ ...base, DEV_ID: APP_ID })).toThrow("DEV_ID was removed");
   });
 });
+
+describe("loadConfig database settings", () => {
+  it("defaults to a local SQLite file", () => {
+    expect(loadConfig(base).database.target.dialect).toBe("sqlite");
+  });
+
+  it("reports an unsupported DATABASE_URL as a config error", () => {
+    expect(() => loadConfig({ ...base, DATABASE_URL: "mysql://localhost/bot" })).toThrow("DATABASE_URL");
+  });
+});

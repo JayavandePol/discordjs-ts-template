@@ -15,6 +15,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "db:push": "drizzle-kit push",
+    "db:migrate": "drizzle-kit migrate",
     "db:generate": "drizzle-kit generate",
     "db:studio": "drizzle-kit studio",
     "register:global": "tsx src/scripts/register-commands.ts --scope global",
@@ -26,7 +27,6 @@
     "discord.js": "^14.27.0",
     "dotenv": "^17.4.2",
     "drizzle-orm": "^0.45.2",
-    "mysql2": "^3.24.4",
     "pino": "^10.4.0",
     "postgres": "^3.4.9",
     "zod": "^4.6.5"
