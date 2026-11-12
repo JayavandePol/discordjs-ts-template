@@ -23,7 +23,15 @@ export const registerEvents = async (
   for (const { file, value: event } of await loadModules(eventsPath, isEvent, "event")) {
     // Event<K>.execute is typed per event; at this boundary the arguments come straight from discord.js
     const execute = event.execute as (...args: unknown[]) => Promise<void>;
-    const handler = (...args: unknown[]) => execute(...args, context);
+    // discord.js re-emits rejected listeners as a client "error" event; catching here keeps the
+    // event name in the log and guarantees a failing listener never reaches the process handlers
+    const handler = async (...args: unknown[]) => {
+      try {
+        await execute(...args, context);
+      } catch (error) {
+        logger.error("Event handler failed", { event: event.name, file, err: error });
+      }
+    };
 
     if (event.once) client.once(event.name, handler);
     else client.on(event.name, handler);

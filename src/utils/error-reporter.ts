@@ -10,8 +10,8 @@ export type ErrorReport = {
 };
 
 /**
- * Captures an error, generates a deterministic 8-character hash from its sanitized stack trace,
- * logs it with structured metadata, and stores/upserts it in the database if available.
+ * Logs an error and stores it in the database when one is configured.
+ * Never throws: a failing database must not turn one error into a crash.
  */
 export const captureError = async (
   logger: Logger,
@@ -20,31 +20,31 @@ export const captureError = async (
   errorStore?: ErrorStore,
   meta?: ErrorMeta
 ): Promise<ErrorReport> => {
-  // Generate deterministic ID from stack trace and context
   const id = generateErrorHash(error, context);
 
-  // Normalize error payload and sanitize stack trace
   const payload =
     error instanceof Error
       ? { name: error.name, message: error.message, stack: error.stack ? cleanStackTrace(error.stack) : undefined }
       : { message: String(error) };
 
-  // Log structured error to file and console
-  logger.error(`Error captured (${context})`, { id, meta, ...payload });
+  logger.error(`Error captured (${context})`, { id, meta, err: error });
 
-  // Store in the database (via Drizzle ORM) if database is enabled
   if (errorStore) {
-    await errorStore.recordError({
-      id,
-      context,
-      message: payload.message,
-      name: "name" in payload ? payload.name : undefined,
-      stack: "stack" in payload ? payload.stack : undefined,
-      meta,
-      guildId: meta?.guildId,
-      userId: meta?.userId,
-      command: meta?.command,
-    });
+    try {
+      await errorStore.recordError({
+        id,
+        context,
+        message: payload.message,
+        name: "name" in payload ? payload.name : undefined,
+        stack: "stack" in payload ? payload.stack : undefined,
+        meta,
+        guildId: meta?.guildId,
+        userId: meta?.userId,
+        command: meta?.command,
+      });
+    } catch (storeError) {
+      logger.error("Failed to store error report", { id, err: storeError });
+    }
   }
 
   return {
