@@ -1,30 +1,19 @@
-import { MessageFlags, EmbedBuilder, GuildMember } from "discord.js";
+import { EmbedBuilder, MessageFlags } from "discord.js";
 import { defineButton } from "../../types/Component.js";
-import { Config } from "../../config/config.js";
+import { EmbedColors } from "../../utils/embeds.js";
 
-// Truncates lengthy strings to keep the embed description within Discord's 4096-character limit
+// Keeps the embed description within Discord's 4096-character limit
 const truncate = (value: string, max: number) =>
   value.length > max ? `${value.slice(0, max - 3)}...` : value;
 
-// Helper function to verify developer access
-const isDeveloper = (
-  userId: string,
-  member: GuildMember | null,
-  config: Config
-): boolean => {
-  if (config.devUserIds.includes(userId)) return true;
-  if (config.devRoleId && member && member.roles.cache.has(config.devRoleId)) return true;
-  return false;
-};
-
-// Modular button handler for error report inspection
+// "Inspect Stack" button on error log messages. Stack traces and internal paths are for
+// developers only, so this button uses the same developer access check as /errors.
 const button = defineButton({
-  // Matches customId starting with "error:info:"
   customId: /^error:info:.+$/,
+  access: "developer",
 
-  async execute(interaction, context) {
-    const { errorStore, config, logger } = context;
-    const id = interaction.customId.replace("error:info:", "");
+  async execute(interaction, { errorStore }) {
+    const id = interaction.customId.slice("error:info:".length);
 
     if (!errorStore) {
       await interaction.reply({
@@ -40,21 +29,8 @@ const button = defineButton({
       return;
     }
 
-    const meta = (record.meta as Record<string, unknown>) ?? {};
-    const isOwner = meta.userId === interaction.user.id;
-    const member = interaction.inCachedGuild() ? interaction.member : null;
-    const isDev = isDeveloper(interaction.user.id, member, config);
-
-    // Restrict stack trace inspection to triggering user or authorized bot developers
-    if (!isOwner && !isDev) {
-      await interaction.reply({
-        content: "You do not have permission to view this error's internal details.",
-        flags: MessageFlags.Ephemeral,
-      });
-      return;
-    }
-
-    const fields = [
+    const meta = record.meta ?? {};
+    const lines = [
       `**Context:** ${record.context}`,
       `**User:** ${meta.userId ? `<@${meta.userId}>` : "Unknown"}`,
       `**Guild:** ${meta.guildId ?? "DM/Unknown"}`,
@@ -63,26 +39,16 @@ const button = defineButton({
     ];
 
     if (record.stack) {
-      fields.push("\n**Stack Trace:**");
-      fields.push("```");
-      fields.push(truncate(record.stack, 1500));
-      fields.push("```");
+      lines.push("\n**Stack Trace:**", "```", truncate(record.stack, 1500), "```");
     }
 
     const embed = new EmbedBuilder()
       .setTitle(`Error Details (${record.id})`)
-      .setDescription(fields.join("\n"))
-      .setColor(0xf04747)
+      .setDescription(lines.join("\n"))
+      .setColor(EmbedColors.Error)
       .setTimestamp(new Date(record.timestamp));
 
-    try {
-      await interaction.reply({
-        embeds: [embed],
-        flags: MessageFlags.Ephemeral,
-      });
-    } catch (err) {
-      logger.error("Failed to send error detail reply", err);
-    }
+    await interaction.reply({ embeds: [embed], flags: MessageFlags.Ephemeral });
   },
 });
 

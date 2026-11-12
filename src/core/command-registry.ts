@@ -2,6 +2,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { Command, CommandKind, commandKey } from "../types/Command.js";
 import { Logger } from "../utils/logger.js";
+import { resolveAccess } from "./access.js";
 import { isObject, loadModules } from "./module-loader.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -15,13 +16,6 @@ const isCommand = (value: unknown): value is Command =>
   typeof value.data.name === "string" &&
   typeof value.data.toJSON === "function";
 
-// Derive default access level from directory structure (e.g., commands/developer/* => "developer")
-const deriveAccess = (file: string): Command["access"] => {
-  const segments = file.split("/");
-  if (segments.includes("developer")) return "developer";
-  if (segments.includes("administrator")) return "admin";
-  return "public";
-};
 
 /**
  * Loads every command in src/commands, keyed by `${kind}:${name}`.
@@ -39,7 +33,7 @@ export const loadCommands = async (
       throw new Error(`Duplicate ${command.kind} command "${command.data.name}" in "${file}".`);
     }
 
-    command.access = command.access ?? deriveAccess(file);
+    command.access = resolveAccess(file, command.access);
     commands.set(key, command);
     logger.debug("Loaded command", { key, file, access: command.access });
   }

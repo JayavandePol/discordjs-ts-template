@@ -7,6 +7,7 @@ import {
   SelectMenuHandler,
 } from "../types/Component.js";
 import { Logger } from "../utils/logger.js";
+import { resolveAccess } from "./access.js";
 import { isObject, loadModules } from "./module-loader.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -69,6 +70,7 @@ export class ComponentRegistry {
 
     for (const { file, value } of await loadModules(dir, isHandler, `${folder} handler`)) {
       const handler = value as T;
+      handler.access = resolveAccess(file, handler.access);
       if (typeof handler.customId === "string") {
         if (handler.customId.startsWith(COLLECTOR_PREFIX)) {
           throw new Error(`"${file}": customIds starting with "${COLLECTOR_PREFIX}" are reserved for collectors.`);

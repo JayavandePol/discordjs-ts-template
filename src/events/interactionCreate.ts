@@ -1,30 +1,37 @@
 import {
   Events,
-  GuildMember,
   Interaction,
   MessageFlags,
-  PermissionsBitField,
   type ChatInputCommandInteraction,
   type MessageContextMenuCommandInteraction,
   type UserContextMenuCommandInteraction,
 } from "discord.js";
 import { defineEvent } from "../types/Event.js";
-import { Config } from "../config/config.js";
+import { checkAccess, type AccessTarget } from "../core/access.js";
 import { Command, commandKey } from "../types/Command.js";
 import { BotContext } from "../types/Context.js";
 import { handleInteractionError } from "../utils/error-handler.js";
-import { sendEphemeral } from "../utils/reply.js";
+import { RepliableInteraction, sendEphemeral } from "../utils/reply.js";
 
 type CommandInteraction =
   | ChatInputCommandInteraction
   | UserContextMenuCommandInteraction
   | MessageContextMenuCommandInteraction;
 
-const isDeveloper = (userId: string, member: GuildMember | null, config: Config): boolean =>
-  config.devUserIds.includes(userId) ||
-  Boolean(config.devRoleId && member && member.roles.cache.has(config.devRoleId));
-
 const EXPIRED_COMPONENT = "This button or menu is no longer active.";
+
+// Runs the shared access check and tells the user when they are denied
+const ensureAccess = async (target: AccessTarget, interaction: RepliableInteraction, context: BotContext) => {
+  const result = checkAccess(target, interaction, context.config);
+  if (result.allowed) return true;
+
+  context.logger.warn("Access denied", {
+    user: interaction.user.id,
+    target: "commandName" in interaction ? interaction.commandName : "customId" in interaction ? interaction.customId : undefined,
+  });
+  await sendEphemeral(interaction, { content: result.reason });
+  return false;
+};
 
 // ------------------------------------------------------------------
 // Components: buttons, select menus and modals
@@ -40,6 +47,7 @@ const handleComponent = async (interaction: Interaction, context: BotContext) =>
       await sendEphemeral(interaction, { content: EXPIRED_COMPONENT });
       return;
     }
+    if (!(await ensureAccess(handler, interaction, context))) return;
     await handler.execute(interaction, context);
     return;
   }
@@ -51,6 +59,7 @@ const handleComponent = async (interaction: Interaction, context: BotContext) =>
       await sendEphemeral(interaction, { content: EXPIRED_COMPONENT });
       return;
     }
+    if (!(await ensureAccess(handler, interaction, context))) return;
     await handler.execute(interaction, context);
     return;
   }
@@ -61,6 +70,7 @@ const handleComponent = async (interaction: Interaction, context: BotContext) =>
       await sendEphemeral(interaction, { content: EXPIRED_COMPONENT });
       return;
     }
+    if (!(await ensureAccess(handler, interaction, context))) return;
     await handler.execute(interaction, context);
   }
 };
@@ -76,7 +86,7 @@ const runCommand = async (command: Command, interaction: CommandInteraction, con
 };
 
 const handleCommand = async (interaction: CommandInteraction, context: BotContext) => {
-  const { commands, logger, config, cooldowns } = context;
+  const { commands, logger, cooldowns } = context;
   const kind = interaction.isChatInputCommand() ? "slash" : interaction.isUserContextMenuCommand() ? "user" : "message";
   const command = commands.get(commandKey(kind, interaction.commandName));
 
@@ -86,26 +96,7 @@ const handleCommand = async (interaction: CommandInteraction, context: BotContex
     return;
   }
 
-  if (command.access === "developer") {
-    const member = interaction.inCachedGuild() ? interaction.member : null;
-    if (!isDeveloper(interaction.user.id, member, config)) {
-      logger.warn("Unauthorized developer command attempt", { user: interaction.user.id, command: command.data.name });
-      await sendEphemeral(interaction, { content: "This command is restricted to the bot developer." });
-      return;
-    }
-  }
-
-  if (command.access === "admin") {
-    if (!interaction.inCachedGuild()) {
-      await sendEphemeral(interaction, { content: "Admin commands can only be used inside a server." });
-      return;
-    }
-    if (!interaction.memberPermissions.has(PermissionsBitField.Flags.Administrator)) {
-      logger.warn("Unauthorized admin command attempt", { user: interaction.user.id, command: command.data.name });
-      await sendEphemeral(interaction, { content: "You need Administrator permissions to use this command." });
-      return;
-    }
-  }
+  if (!(await ensureAccess(command, interaction, context))) return;
 
   if (command.cooldown) {
     const remaining = cooldowns.check(command.data.name, interaction.user.id, command.cooldown);
@@ -136,6 +127,12 @@ const event = defineEvent({
     if (interaction.isAutocomplete()) {
       const command = context.commands.get(commandKey("slash", interaction.commandName));
       if (command?.kind !== "slash" || !command.autocomplete) return;
+
+      // Autocomplete can leak data (e.g. error IDs), so it gets the same access check as the command
+      if (!checkAccess(command, interaction, context.config).allowed) {
+        await interaction.respond([]).catch(() => undefined);
+        return;
+      }
 
       try {
         await command.autocomplete(interaction, context);
