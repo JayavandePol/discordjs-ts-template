@@ -1,5 +1,7 @@
 import {
   ActionRowBuilder,
+  ApplicationCommandOptionType,
+  CommandInteractionOption,
   ButtonBuilder,
   ButtonStyle,
   EmbedBuilder,
@@ -17,26 +19,36 @@ export type { RepliableInteraction } from "./reply.js";
 const isUserError = (error: unknown): error is UserError =>
   error instanceof UserError || (error instanceof Error && error.name === "UserError");
 
+// Collects option names (never values), including options nested in subcommands
+const collectOptionNames = (options: readonly CommandInteractionOption[]): string[] =>
+  options.flatMap((option) =>
+    option.type === ApplicationCommandOptionType.Subcommand || option.type === ApplicationCommandOptionType.SubcommandGroup
+      ? collectOptionNames(option.options ?? [])
+      : [option.name]
+  );
+
 const buildMeta = (interaction: RepliableInteraction): ErrorMeta => {
-  const options: Record<string, string | number | boolean> = {};
-
-  if (interaction.isChatInputCommand()) {
-    for (const opt of interaction.options.data) {
-      if (opt.value !== undefined) options[opt.name] = opt.value;
-    }
-  } else if (interaction.isModalSubmit()) {
-    for (const [key, field] of interaction.fields.fields) {
-      if ("value" in field && field.value !== null && field.value !== undefined) options[key] = field.value;
-    }
-  }
-
-  return {
+  const meta: ErrorMeta = {
     userId: interaction.user.id,
     guildId: interaction.guildId ?? undefined,
     channelId: interaction.channelId ?? undefined,
-    command: "commandName" in interaction ? interaction.commandName : undefined,
-    options: Object.keys(options).length > 0 ? options : undefined,
   };
+
+  if (interaction.isChatInputCommand()) {
+    const group = interaction.options.getSubcommandGroup(false);
+    const subcommand = interaction.options.getSubcommand(false);
+    const optionNames = collectOptionNames(interaction.options.data);
+    meta.command = interaction.commandName;
+    meta.subcommand = [group, subcommand].filter(Boolean).join(" ") || undefined;
+    meta.optionNames = optionNames.length > 0 ? optionNames : undefined;
+  } else if (interaction.isCommand()) {
+    meta.command = interaction.commandName;
+  } else {
+    // Buttons, select menus and modals: the customId says what was used; modal text is never stored
+    meta.command = interaction.customId;
+  }
+
+  return meta;
 };
 
 /**

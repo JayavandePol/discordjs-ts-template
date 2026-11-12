@@ -9,6 +9,7 @@ import { captureError } from "./utils/error-reporter.js";
 import { describeDatabase, initDatabase, DatabaseConnection } from "./data/db.js";
 import { createErrorStore } from "./data/error-store.js";
 import { CooldownManager } from "./utils/cooldown-manager.js";
+import { startErrorRetention } from "./utils/error-retention.js";
 
 // 1. Load and validate environment variables with Zod
 const config = loadConfig();
@@ -34,6 +35,9 @@ await components.loadAll();
 
 const dbConnection: DatabaseConnection | null = await initDatabase(config, logger);
 const errorStore = dbConnection ? createErrorStore(dbConnection) : undefined;
+const stopErrorRetention = errorStore
+  ? startErrorRetention(errorStore, config.errorRetentionDays, logger)
+  : () => undefined;
 if (dbConnection) {
   logger.info(`Database ready (${describeDatabase(dbConnection.dialect)}).`);
 }
@@ -46,6 +50,7 @@ const shutdown = async (reason: string, exitCode = 0) => {
   if (shuttingDown) return;
   shuttingDown = true;
   logger.warn("Shutting down", { reason });
+  stopErrorRetention();
 
   try {
     await client.destroy();

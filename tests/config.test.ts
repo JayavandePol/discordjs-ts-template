@@ -32,6 +32,7 @@ describe("loadConfig", () => {
     expect(config.devUserIds).toEqual([]);
     expect(config.logLevel).toBe("info");
     expect(config.database.enabled).toBe(true);
+    expect(config.errorRetentionDays).toBe(30);
   });
 
   it("rejects placeholder text where a Discord ID is expected", () => {

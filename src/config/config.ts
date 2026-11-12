@@ -38,6 +38,9 @@ const envSchema = z.object({
   // Only for remote libSQL / Turso databases
   DATABASE_AUTH_TOKEN: optional(z.string()),
   DB_LOGGING: flag(false),
+
+  // Days to keep error reports; 0 keeps them forever
+  ERROR_RETENTION_DAYS: optional(z.coerce.number().int().min(0)).transform((value) => value ?? 30),
 });
 
 export type Config = {
@@ -51,6 +54,7 @@ export type Config = {
   errorLogChannelId?: string;
   supportUrl?: string;
   autoRegisterCommands: boolean;
+  errorRetentionDays: number;
   database: {
     enabled: boolean;
     target: DatabaseTarget;
@@ -94,6 +98,7 @@ export const loadConfig = (env: NodeJS.ProcessEnv = process.env): Config => {
     errorLogChannelId: values.ERRORLOGCHANNEL_ID,
     supportUrl: values.SUPPORT_URL,
     autoRegisterCommands: values.AUTO_REGISTER_COMMANDS,
+    errorRetentionDays: values.ERROR_RETENTION_DAYS,
     database: {
       enabled: values.DB_ENABLED,
       target,
