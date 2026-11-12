@@ -5,22 +5,24 @@
   "private": true,
   "type": "module",
   "engines": {
-    "node": ">=18.17"
+    "node": ">=22.12"
   },
   "scripts": {
     "dev": "tsx watch src/index.ts",
-    "build": "tsc",
-    "start": "node dist/index.js",
-    "lint": "tsc --noEmit",
+    "prebuild": "node -e \"require('node:fs').rmSync('dist', { recursive: true, force: true })\"",
+    "build": "tsc -p tsconfig.build.json",
+    "start": "node --enable-source-maps dist/index.js",
+    "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
-    "db:push": "drizzle-kit push",
-    "db:migrate": "drizzle-kit migrate",
+    "test:coverage": "vitest run --coverage",
     "db:generate": "drizzle-kit generate",
+    "db:migrate": "drizzle-kit migrate",
+    "db:push": "drizzle-kit push",
     "db:studio": "drizzle-kit studio",
+    "register:guild": "tsx src/scripts/register-commands.ts --scope guild",
     "register:global": "tsx src/scripts/register-commands.ts --scope global",
-    "register:clear": "tsx src/scripts/register-commands.ts --clear",
-    "register:guild": "tsx src/scripts/register-commands.ts --scope guild"
+    "register:clear": "tsx src/scripts/register-commands.ts --clear"
   },
   "dependencies": {
     "@libsql/client": "^0.18.0",
@@ -34,6 +36,7 @@
   "devDependencies": {
     "@electric-sql/pglite": "^0.5.16",
     "@types/node": "^25.9.1",
+    "@vitest/coverage-v8": "^4.1.10",
     "drizzle-kit": "^0.31.10",
     "pino-pretty": "^13.2.0",
     "tsx": "^4.23.13",
