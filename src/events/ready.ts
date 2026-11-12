@@ -1,6 +1,6 @@
 import { Events } from "discord.js";
 import { defineEvent } from "../types/Event.js";
-import { registerApplicationCommands } from "../core/command-publisher.js";
+import { defaultScope, registerApplicationCommands } from "../core/command-publisher.js";
 import { captureError } from "../utils/error-reporter.js";
 
 // ClientReady event handler triggered once the Discord bot successfully establishes a gateway connection
@@ -19,7 +19,7 @@ const event = defineEvent({
     if (config.autoRegisterCommands) {
       try {
         logger.info("AUTO_REGISTER_COMMANDS is true; publishing application commands to Discord...");
-        await registerApplicationCommands(commands, config, logger);
+        await registerApplicationCommands(commands, config, logger, defaultScope(config));
       } catch (error) {
         const report = await captureError(
           logger,

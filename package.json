@@ -18,6 +18,7 @@
     "db:generate": "drizzle-kit generate",
     "db:studio": "drizzle-kit studio",
     "register:global": "tsx src/scripts/register-commands.ts --scope global",
+    "register:clear": "tsx src/scripts/register-commands.ts --clear",
     "register:guild": "tsx src/scripts/register-commands.ts --scope guild"
   },
   "dependencies": {

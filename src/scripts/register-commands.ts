@@ -1,39 +1,49 @@
+import { parseArgs } from "node:util";
+import { pathToFileURL } from "node:url";
+import { z } from "zod";
 import { loadCommands } from "../core/command-registry.js";
 import { loadConfig } from "../config/config.js";
 import { Logger } from "../utils/logger.js";
-import {
-  registerApplicationCommands,
-  RegistrationScope,
-} from "../core/command-publisher.js";
+import { clearApplicationCommands, registerApplicationCommands } from "../core/command-publisher.js";
 
-type ScopeArg = RegistrationScope | "auto";
+const USAGE = "Usage: register-commands --scope <guild|global> [--clear]";
 
-// Parses CLI arguments for target registration scope (--scope=guild or --scope=global)
-const parseScope = (): ScopeArg => {
-  const arg = process.argv.find((part) => part === "--scope" || part.startsWith("--scope="));
-  if (!arg) return "auto";
-  if (arg === "--scope") {
-    const value = process.argv[process.argv.indexOf(arg) + 1];
-    return (value as ScopeArg) ?? "auto";
+/**
+ * Parses CLI arguments. The scope is required and validated: a typo must never fall
+ * through to replacing the global command list.
+ */
+export const parseRegisterArgs = (argv: string[]) => {
+  const { values } = parseArgs({
+    args: argv,
+    options: { scope: { type: "string" }, clear: { type: "boolean", default: false } },
+    strict: true,
+  });
+
+  const scope = z.enum(["guild", "global"]).safeParse(values.scope);
+  if (!scope.success) {
+    throw new Error(`Invalid or missing --scope "${values.scope ?? ""}". ${USAGE}`);
   }
-  const [, value] = arg.split("=");
-  return (value as ScopeArg) ?? "auto";
+  return { scope: scope.data, clear: values.clear ?? false };
 };
 
-// 1. Initialize config and logger
-const config = loadConfig();
-const logger = new Logger(config.logLevel);
-const scope = parseScope();
+const main = async () => {
+  const { scope, clear } = parseRegisterArgs(process.argv.slice(2));
+  const config = loadConfig();
+  const logger = new Logger(config.logLevel);
 
-// 2. Discover all local slash command files
-const commands = await loadCommands(logger);
+  if (clear) {
+    await clearApplicationCommands(config, logger, scope);
+  } else {
+    await registerApplicationCommands(await loadCommands(logger), config, logger, scope);
+  }
+  await logger.flush();
+};
 
-const override = scope === "auto" ? undefined : scope;
-
-// 3. Publish to Discord REST API
-try {
-  await registerApplicationCommands(commands, config, logger, override);
-} catch (error) {
-  logger.error("Failed to register application commands", error);
-  process.exitCode = 1;
+// Only run when executed directly, so tests can import parseRegisterArgs
+const isMain = process.argv[1] !== undefined && import.meta.url === pathToFileURL(process.argv[1]).href;
+if (isMain) {
+  main().catch((error: unknown) => {
+    console.error(error instanceof Error ? error.message : error);
+    process.exitCode = 1;
+  });
 }
