@@ -42,7 +42,7 @@ export class CooldownManager {
       if (timestamps.size === 0) {
         this.cooldowns.delete(commandName);
       }
-    }, cooldownMs);
+    }, cooldownMs).unref(); // cleanup timers never keep the process alive
 
     return null;
   }

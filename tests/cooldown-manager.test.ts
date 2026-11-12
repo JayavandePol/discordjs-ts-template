@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { afterEach, describe, it, expect, vi, beforeEach } from "vitest";
 import { CooldownManager } from "../src/utils/cooldown-manager.js";
 
 describe("CooldownManager", () => {
@@ -7,6 +7,10 @@ describe("CooldownManager", () => {
   beforeEach(() => {
     manager = new CooldownManager();
     vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
   });
 
   it("should allow first command execution (no cooldown)", () => {
