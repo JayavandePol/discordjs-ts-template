@@ -1,37 +1,29 @@
-import {
-  ButtonInteraction,
+import type {
   AnySelectMenuInteraction,
+  ButtonInteraction,
   ModalSubmitInteraction,
 } from "discord.js";
-import { BotContext } from "./Context.js";
+import type { AccessLevel } from "./Command.js";
+import type { BotContext } from "./Context.js";
 
 /**
- * Handler definition for Button interactions.
- * `customId` can be an exact string (e.g. "ticket:close") or a RegExp (e.g. /^ticket:close:.+$/).
+ * `customId` is an exact string (e.g. "ticket:close") or a RegExp (e.g. /^ticket:close:.+$/).
+ * customIds starting with "collector:" are reserved for message collectors (see utils/paginator.ts)
+ * and are never routed to a handler.
  */
-export interface ButtonHandler {
+type ComponentBase<I> = {
   customId: string | RegExp;
-  execute: (interaction: ButtonInteraction, context: BotContext) => Promise<void>;
-}
-
-/**
- * Handler definition for Select Menu (String, User, Role, Channel, Mentionable) interactions.
- */
-export interface SelectMenuHandler {
-  customId: string | RegExp;
-  execute: (interaction: AnySelectMenuInteraction, context: BotContext) => Promise<void>;
-}
-
-/**
- * Handler definition for Modal submission interactions.
- */
-export interface ModalHandler {
-  customId: string | RegExp;
-  execute: (interaction: ModalSubmitInteraction, context: BotContext) => Promise<void>;
-}
-
-export type ComponentCollections = {
-  buttons: ButtonHandler[];
-  selectMenus: SelectMenuHandler[];
-  modals: ModalHandler[];
+  // Defaults to "public". Checked before execute() with the same rules as commands.
+  access?: AccessLevel;
+  execute: (interaction: I, context: BotContext) => Promise<void>;
 };
+
+export type ButtonHandler = ComponentBase<ButtonInteraction>;
+export type SelectMenuHandler = ComponentBase<AnySelectMenuInteraction>;
+export type ModalHandler = ComponentBase<ModalSubmitInteraction>;
+
+export const COLLECTOR_PREFIX = "collector:";
+
+export const defineButton = (handler: ButtonHandler) => handler;
+export const defineSelectMenu = (handler: SelectMenuHandler) => handler;
+export const defineModal = (handler: ModalHandler) => handler;

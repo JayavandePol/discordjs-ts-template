@@ -2,7 +2,7 @@ import {
   EmbedBuilder,
   SlashCommandBuilder,
 } from "discord.js";
-import { Command } from "../../types/Command.js";
+import { defineSlashCommand } from "../../types/Command.js";
 import { handleInteractionError } from "../../utils/error-handler.js";
 import { paginate } from "../../utils/paginator.js";
 
@@ -11,7 +11,7 @@ const truncate = (value: string, max = 200) =>
   value.length > max ? `${value.slice(0, max - 3)}...` : value;
 
 // Developer error inspector command with subcommands, dynamic autocomplete, and paginated error browsing
-const command: Command = {
+const command = defineSlashCommand({
   data: new SlashCommandBuilder()
     .setName("errors")
     .setDescription("Developer diagnostics and error inspection tools.")
@@ -136,6 +136,6 @@ const command: Command = {
       await paginate(interaction, pages, { ephemeral: true });
     }
   },
-};
+});
 
 export default command;

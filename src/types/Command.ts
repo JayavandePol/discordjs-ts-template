@@ -1,63 +1,80 @@
-import {
-  ChatInputCommandInteraction,
-  ContextMenuCommandInteraction,
-  UserContextMenuCommandInteraction,
-  MessageContextMenuCommandInteraction,
+import type {
   AutocompleteInteraction,
-  SlashCommandBuilder,
-  SlashCommandSubcommandsOnlyBuilder,
-  SlashCommandOptionsOnlyBuilder,
-  ContextMenuCommandBuilder,
+  ChatInputCommandInteraction,
+  MessageContextMenuCommandInteraction,
+  RESTPostAPIApplicationCommandsJSONBody,
+  UserContextMenuCommandInteraction,
 } from "discord.js";
-import { BotContext } from "./Context.js";
-
-// Builder union type covering Slash commands and Context Menu commands
-export type CommandBuilder =
-  | SlashCommandBuilder
-  | SlashCommandSubcommandsOnlyBuilder
-  | SlashCommandOptionsOnlyBuilder
-  | ContextMenuCommandBuilder
-  | Omit<SlashCommandBuilder, "addSubcommand" | "addSubcommandGroup">;
-
-// Union of all interaction types that can execute a command
-export type ExecutableInteraction =
-  | ChatInputCommandInteraction
-  | ContextMenuCommandInteraction
-  | UserContextMenuCommandInteraction
-  | MessageContextMenuCommandInteraction;
+import type { BotContext } from "./Context.js";
 
 /**
- * Interface representing a slash command or context menu command module.
- * Defaults to `ChatInputCommandInteraction` for standard slash commands.
+ * Access levels, from least to most restricted:
+ * - "public": anyone
+ * - "admin": guild members with `permissions` (defaults to Administrator)
+ * - "developer": users in DEV_USER_IDS or holding DEV_ROLE_ID; only registered in the dev guild
  */
-export interface Command<T extends ExecutableInteraction = ChatInputCommandInteraction> {
-  // Application command builder data (Slash or Context Menu)
-  data: CommandBuilder;
+export type AccessLevel = "public" | "admin" | "developer";
 
-  // Primary execution handler receiving the typed interaction and BotContext
-  execute: (interaction: T, context: BotContext) => Promise<void>;
+export type CommandKind = "slash" | "user" | "message";
 
-  // Optional handler for dynamic option autocompletion (Slash commands only)
-  autocomplete?: (interaction: AutocompleteInteraction, context: BotContext) => Promise<void>;
+// Anything with a name that serializes to an application command payload (all discord.js builders)
+export type CommandData = {
+  readonly name: string;
+  toJSON(): RESTPostAPIApplicationCommandsJSONBody;
+};
 
-  /**
-   * Access level applied automatically based on folder or explicit declaration:
-   * - "public": Available to all users (default)
-   * - "admin": Requires Administrator permission in the guild
-   * - "developer": Requires user ID in DEV_USER_IDS or DEV_ROLE_ID role match
-   */
-  access?: "public" | "admin" | "developer";
+type CommandBase = {
+  data: CommandData;
 
-  // Shortcut flag for developer-only access
-  devOnly?: boolean;
+  // Access level; the folder a command lives in sets the minimum (see core/access.ts)
+  access?: AccessLevel;
 
-  // Cooldown duration in seconds before the same user can run the command again
+  // Permissions required for "admin" commands. Sent to Discord as default_member_permissions
+  // and checked again at runtime. Defaults to PermissionFlagsBits.Administrator.
+  permissions?: bigint;
+
+  // Per-user cooldown in seconds
   cooldown?: number;
 
-  /**
-   * Automatic interaction deferral helper:
-   * - true: calls `interaction.deferReply()` automatically before execute
-   * - "ephemeral": calls `interaction.deferReply({ ephemeral: true })` before execute
-   */
+  // Defer the reply before execute(): true (public) or "ephemeral"
   defer?: boolean | "ephemeral";
-}
+};
+
+export type SlashCommand = CommandBase & {
+  kind: "slash";
+  execute: (interaction: ChatInputCommandInteraction, context: BotContext) => Promise<void>;
+  autocomplete?: (interaction: AutocompleteInteraction, context: BotContext) => Promise<void>;
+};
+
+export type UserCommand = CommandBase & {
+  kind: "user";
+  execute: (interaction: UserContextMenuCommandInteraction, context: BotContext) => Promise<void>;
+};
+
+export type MessageCommand = CommandBase & {
+  kind: "message";
+  execute: (interaction: MessageContextMenuCommandInteraction, context: BotContext) => Promise<void>;
+};
+
+export type Command = SlashCommand | UserCommand | MessageCommand;
+
+/** Defines a slash command (`/name`). */
+export const defineSlashCommand = (command: Omit<SlashCommand, "kind">): SlashCommand => ({
+  ...command,
+  kind: "slash",
+});
+
+/** Defines a user context menu command (right-click a user -> Apps). */
+export const defineUserCommand = (command: Omit<UserCommand, "kind">): UserCommand => ({
+  ...command,
+  kind: "user",
+});
+
+/** Defines a message context menu command (right-click a message -> Apps). */
+export const defineMessageCommand = (command: Omit<MessageCommand, "kind">): MessageCommand => ({
+  ...command,
+  kind: "message",
+});
+
+/** Registry key: names only have to be unique per command kind in Discord. */
+export const commandKey = (kind: CommandKind, name: string) => `${kind}:${name}`;

@@ -4,10 +4,10 @@ import {
   MessageContextMenuCommandInteraction,
   EmbedBuilder,
 } from "discord.js";
-import { Command } from "../types/Command.js";
+import { defineMessageCommand } from "../types/Command.js";
 
 // Message Context Menu command triggered by right-clicking any message -> Apps -> "Quote Message"
-const command: Command<MessageContextMenuCommandInteraction> = {
+const command = defineMessageCommand({
   data: new ContextMenuCommandBuilder()
     .setName("Quote Message")
     .setType(ApplicationCommandType.Message),
@@ -41,6 +41,6 @@ const command: Command<MessageContextMenuCommandInteraction> = {
       messageId: targetMessage.id,
     });
   },
-};
+});
 
 export default command;

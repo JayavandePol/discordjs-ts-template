@@ -1,10 +1,10 @@
 import { Events } from "discord.js";
-import { Event } from "../types/Event.js";
+import { defineEvent } from "../types/Event.js";
 import { registerApplicationCommands } from "../core/command-publisher.js";
 import { captureError } from "../utils/error-reporter.js";
 
 // ClientReady event handler triggered once the Discord bot successfully establishes a gateway connection
-const event: Event<Events.ClientReady> = {
+const event = defineEvent({
   name: Events.ClientReady,
   once: true,
   async execute(client, context) {
@@ -35,6 +35,6 @@ const event: Event<Events.ClientReady> = {
       );
     }
   },
-};
+});
 
 export default event;

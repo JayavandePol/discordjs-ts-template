@@ -1,5 +1,5 @@
 import { EmbedBuilder, GuildMember } from "discord.js";
-import { ButtonHandler } from "../../types/Component.js";
+import { defineButton } from "../../types/Component.js";
 import { Config } from "../../config/config.js";
 
 // Truncates lengthy strings to keep the embed description within Discord's 4096-character limit
@@ -18,7 +18,7 @@ const isDeveloper = (
 };
 
 // Modular button handler for error report inspection
-const button: ButtonHandler = {
+const button = defineButton({
   // Matches customId starting with "error:info:"
   customId: /^error:info:.+$/,
 
@@ -84,6 +84,6 @@ const button: ButtonHandler = {
       logger.error("Failed to send error detail reply", err);
     }
   },
-};
+});
 
 export default button;

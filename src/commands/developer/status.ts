@@ -1,5 +1,5 @@
 import { EmbedBuilder, SlashCommandBuilder } from "discord.js";
-import { Command } from "../../types/Command.js";
+import { defineSlashCommand } from "../../types/Command.js";
 import { detectDialect } from "../../data/db.js";
 
 // Helper function to summarize database connection state for diagnostics
@@ -17,7 +17,7 @@ const summarizeDatabase = (config: {
 };
 
 // Developer status command to inspect environment, memory, latency, and guild counts
-const command: Command = {
+const command = defineSlashCommand({
   data: new SlashCommandBuilder()
     .setName("status")
     .setDescription("Display internal bot diagnostics, system stats, and connection state."),
@@ -52,6 +52,6 @@ const command: Command = {
 
     await interaction.editReply({ embeds: [embed] });
   },
-};
+});
 
 export default command;

@@ -1,9 +1,9 @@
 import { SlashCommandBuilder } from "discord.js";
-import { Command } from "../types/Command.js";
+import { defineSlashCommand } from "../types/Command.js";
 import { createSuccessEmbed } from "../utils/embeds.js";
 
 // Public ping command demonstrating latency measurement, cooldown, and embed formatting
-const command: Command = {
+const command = defineSlashCommand({
   // Define slash command metadata
   data: new SlashCommandBuilder()
     .setName("ping")
@@ -29,6 +29,6 @@ const command: Command = {
     await interaction.editReply({ content: null, embeds: [embed] });
     logger.info("Handled /ping", { user: interaction.user.id, latency, heartbeat });
   },
-};
+});
 
 export default command;

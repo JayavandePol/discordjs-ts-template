@@ -3,11 +3,11 @@ import {
   PermissionFlagsBits,
   EmbedBuilder,
 } from "discord.js";
-import { Command } from "../../types/Command.js";
+import { defineSlashCommand } from "../../types/Command.js";
 import { createSuccessEmbed } from "../../utils/embeds.js";
 
 // Administrator-only test command demonstrating native permission gating and subcommand routing
-const command: Command = {
+const command = defineSlashCommand({
   data: new SlashCommandBuilder()
     .setName("admintest")
     .setDescription("Administrator diagnostics and testing utilities.")
@@ -74,6 +74,6 @@ const command: Command = {
       return;
     }
   },
-};
+});
 
 export default command;

@@ -4,9 +4,9 @@ import {
   PermissionsBitField,
   GuildMember,
 } from "discord.js";
-import { Event } from "../types/Event.js";
+import { defineEvent } from "../types/Event.js";
 import { Config } from "../config/config.js";
-import { ExecutableInteraction } from "../types/Command.js";
+import { commandKey } from "../types/Command.js";
 import { handleInteractionError } from "../utils/error-handler.js";
 
 /**
@@ -33,7 +33,7 @@ const isDeveloper = (
 };
 
 // Main interaction router handling Slash Commands, Context Menus, Autocomplete, Buttons, Select Menus, and Modals
-const event: Event<Events.InteractionCreate> = {
+const event = defineEvent({
   name: Events.InteractionCreate,
   async execute(interaction: Interaction, context) {
     const { commands, components, logger, config, cooldowns } = context;
@@ -102,8 +102,8 @@ const event: Event<Events.InteractionCreate> = {
     // 4. Autocomplete Interactions
     // ------------------------------------------------------------------
     if (interaction.isAutocomplete()) {
-      const command = commands.get(interaction.commandName);
-      if (!command || !command.autocomplete) return;
+      const command = commands.get(commandKey("slash", interaction.commandName));
+      if (command?.kind !== "slash" || !command.autocomplete) return;
 
       try {
         await command.autocomplete(interaction, context);
@@ -120,7 +120,8 @@ const event: Event<Events.InteractionCreate> = {
     // 5. Application Commands (Slash Commands & Context Menus)
     // ------------------------------------------------------------------
     if (interaction.isChatInputCommand() || interaction.isContextMenuCommand()) {
-      const command = commands.get(interaction.commandName);
+      const kind = interaction.isChatInputCommand() ? "slash" : interaction.isUserContextMenuCommand() ? "user" : "message";
+      const command = commands.get(commandKey(kind, interaction.commandName));
       if (!command) {
         logger.warn("Received unknown command", { command: interaction.commandName });
         await interaction.reply({ content: "Command not recognized.", ephemeral: true });
@@ -128,7 +129,7 @@ const event: Event<Events.InteractionCreate> = {
       }
 
       // Access Check: Developer-Only commands
-      if (command.access === "developer" || command.devOnly) {
+      if (command.access === "developer") {
         const member = interaction.inCachedGuild() ? interaction.member : null;
         const authorized = isDeveloper(interaction.user.id, member, config);
 
@@ -195,10 +196,9 @@ const event: Event<Events.InteractionCreate> = {
 
       // Command execution with central error capture
       try {
-        await (command.execute as (interaction: ExecutableInteraction, context: any) => Promise<void>)(
-          interaction,
-          context
-        );
+        if (command.kind === "slash" && interaction.isChatInputCommand()) await command.execute(interaction, context);
+        else if (command.kind === "user" && interaction.isUserContextMenuCommand()) await command.execute(interaction, context);
+        else if (command.kind === "message" && interaction.isMessageContextMenuCommand()) await command.execute(interaction, context);
       } catch (error) {
         await handleInteractionError(
           interaction,
@@ -209,6 +209,6 @@ const event: Event<Events.InteractionCreate> = {
       }
     }
   },
-};
+});
 
 export default event;
