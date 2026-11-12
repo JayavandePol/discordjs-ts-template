@@ -1,141 +1,112 @@
-import {
-  EmbedBuilder,
-  SlashCommandBuilder,
-} from "discord.js";
-import { Command } from "../../types/Command.js";
+import { EmbedBuilder, MessageFlags, SlashCommandBuilder } from "discord.js";
+import { defineSlashCommand } from "../../types/Command.js";
+import type { ErrorEvent } from "../../data/error-store.js";
 import { handleInteractionError } from "../../utils/error-handler.js";
+import { EmbedColors } from "../../utils/embeds.js";
 import { paginate } from "../../utils/paginator.js";
 
-// Helper to truncate lengthy string fields for Discord embed constraints
-const truncate = (value: string, max = 200) =>
-  value.length > max ? `${value.slice(0, max - 3)}...` : value;
+// Discord limits: autocomplete choice names are 1-100 characters, embed field values 1024
+const truncate = (value: string, max = 200) => (value.length > max ? `${value.slice(0, max - 3)}...` : value);
+const codeBlock = (value: string, max: number) => `\`\`\`\n${truncate(value, max)}\n\`\`\``;
+const relative = (date: Date) => `<t:${Math.floor(date.getTime() / 1000)}:R>`;
 
-// Developer error inspector command with subcommands, dynamic autocomplete, and paginated error browsing
-const command: Command = {
+const detailEmbed = (record: ErrorEvent) => {
+  const meta = record.meta ?? {};
+  const embed = new EmbedBuilder()
+    .setTitle(`Error Report ${record.id}`)
+    .setColor(EmbedColors.Error)
+    .addFields(
+      { name: "Context", value: `\`${truncate(record.context, 100)}\``, inline: true },
+      { name: "Occurrences", value: `\`${record.occurrences}\` (same fingerprint)`, inline: true },
+      { name: "When", value: relative(record.createdAt), inline: true },
+      { name: "User", value: meta.userId ? `<@${meta.userId}>` : "Unknown", inline: true },
+      { name: "Guild", value: meta.guildId ?? "DM/Unknown", inline: true },
+      { name: "Channel", value: meta.channelId ? `<#${meta.channelId}>` : "Unknown", inline: true },
+      { name: "Error", value: `**${record.name ?? "Error"}**: ${truncate(record.message, 400) || "None"}` }
+    )
+    .setFooter({ text: `Fingerprint ${record.fingerprint}` });
+
+  if (record.stack) embed.addFields({ name: "Stack Trace", value: codeBlock(record.stack, 900) });
+  return embed;
+};
+
+// Developer error inspector: look up a report by ID, or browse the latest ones
+const command = defineSlashCommand({
   data: new SlashCommandBuilder()
     .setName("errors")
     .setDescription("Developer diagnostics and error inspection tools.")
-    .addSubcommand((sub) =>
-      sub.setName("test").setDescription("Simulate an unexpected synthetic error and store it.")
-    )
+    .addSubcommand((sub) => sub.setName("test").setDescription("Trigger a synthetic error to test reporting."))
     .addSubcommand((sub) =>
       sub
         .setName("lookup")
-        .setDescription("Look up full crash details and stack trace by Error ID.")
+        .setDescription("Show the full report for an error ID.")
         .addStringOption((opt) =>
-          opt
-            .setName("id")
-            .setDescription("Error ID from a prior failure (supports autocomplete)")
-            .setRequired(true)
-            .setAutocomplete(true)
+          opt.setName("id").setDescription("Error ID (supports autocomplete)").setRequired(true).setAutocomplete(true)
         )
     )
-    .addSubcommand((sub) =>
-      sub.setName("list").setDescription("Browse the latest logged errors with an interactive paginator.")
-    ),
+    .addSubcommand((sub) => sub.setName("list").setDescription("Browse the latest error reports.")),
 
-  // Access control tag restricted to developers
   access: "developer",
 
-  // Dynamic autocompletion for recent Error IDs in the database
   async autocomplete(interaction, { errorStore }) {
-    if (!errorStore) return;
+    if (!errorStore) {
+      await interaction.respond([]);
+      return;
+    }
 
-    const focusedValue = interaction.options.getFocused().toLowerCase();
-    const latestErrors = await errorStore.listLatest(15);
-
-    // Filter results matching the user's typed input
-    const filtered = latestErrors
-      .filter((err) => err.id.toLowerCase().includes(focusedValue) || err.context.toLowerCase().includes(focusedValue))
-      .slice(0, 25)
-      .map((err) => ({
-        name: `${err.id} (${err.context}) - ${truncate(err.message, 40)}`,
-        value: err.id,
-      }));
-
-    await interaction.respond(filtered);
+    const matches = await errorStore.search(interaction.options.getFocused(), 25);
+    await interaction.respond(
+      matches.map((record) => ({
+        name: truncate(`${record.id} · ${record.context} · ${record.message}`, 100),
+        value: record.id,
+      }))
+    );
   },
 
-  // Primary command execution
   async execute(interaction, context) {
-    const { errorStore } = context;
+    const { errorStore, logger } = context;
     if (!errorStore) {
       await interaction.reply({
-        content: "Database is disabled; error tracking storage is unavailable.",
-        ephemeral: true,
+        content: "The database is disabled, so error reports are only written to the logs.",
+        flags: MessageFlags.Ephemeral,
       });
       return;
     }
 
     const sub = interaction.options.getSubcommand();
 
-    // 1. Simulate synthetic error
     if (sub === "test") {
-      const syntheticError = new Error("Synthetic test error triggered via /errors test");
-      await handleInteractionError(interaction, context, syntheticError, "manual-test");
+      await handleInteractionError(interaction, context, new Error("Synthetic test error from /errors test"), "manual-test");
       return;
     }
 
-    // 2. Lookup error by ID
     if (sub === "lookup") {
-      const id = interaction.options.getString("id", true);
+      const id = interaction.options.getString("id", true).trim();
       const record = await errorStore.getById(id);
       if (!record) {
-        await interaction.reply({ content: `No error record found matching ID \`${id}\`.`, ephemeral: true });
+        await interaction.reply({ content: `No error report with ID \`${id}\`.`, flags: MessageFlags.Ephemeral });
         return;
       }
-
-      const embed = new EmbedBuilder()
-        .setTitle(`Error Report (${record.id})`)
-        .setColor(0xf04747)
-        .addFields(
-          { name: "Context Label", value: `\`${record.context}\``, inline: true },
-          { name: "Severity", value: `\`${record.severity}\``, inline: true },
-          { name: "Occurrences", value: `\`${record.occurrences}\``, inline: true },
-          { name: "User", value: record.meta?.userId ? `<@${record.meta.userId}>` : "Unknown", inline: true },
-          { name: "Guild", value: (record.meta?.guildId as string) ?? "DM/Unknown", inline: true },
-          { name: "Channel", value: record.meta?.channelId ? `<#${record.meta.channelId}>` : "Unknown", inline: true },
-          { name: "Command / Handler", value: record.meta?.command ?? "N/A", inline: true },
-          { name: "Timestamp", value: new Date(record.timestamp).toUTCString(), inline: true },
-          { name: "Error Name", value: record.name ?? "Error", inline: true },
-          { name: "Error Message", value: truncate(record.message, 400) || "None", inline: false }
-        );
-
-      if (record.stack) {
-        embed.addFields({ name: "Stack Trace", value: `\`\`\`\n${truncate(record.stack, 500)}\n\`\`\`` });
-      }
-
-      await interaction.reply({ embeds: [embed], ephemeral: true });
+      await interaction.reply({ embeds: [detailEmbed(record)], flags: MessageFlags.Ephemeral });
       return;
     }
 
-    // 3. Paginated list of latest errors
     if (sub === "list") {
       const records = await errorStore.listLatest(20);
-
       if (records.length === 0) {
-        await interaction.reply({ content: "No logged error records found in the database.", ephemeral: true });
+        await interaction.reply({ content: "No error reports stored.", flags: MessageFlags.Ephemeral });
         return;
       }
 
-      // Generate a page for each error record
       const pages = records.map((record, index) =>
-        new EmbedBuilder()
-          .setTitle(`Logged Error #${index + 1} (${record.id})`)
-          .setColor(0xf04747)
-          .addFields(
-            { name: "Context", value: `\`${record.context}\``, inline: true },
-            { name: "Occurrences", value: `\`${record.occurrences}\``, inline: true },
-            { name: "Timestamp", value: new Date(record.timestamp).toUTCString(), inline: true },
-            { name: "Message", value: truncate(record.message, 250) || "None", inline: false },
-            { name: "Stack Preview", value: record.stack ? `\`\`\`\n${truncate(record.stack, 300)}\n\`\`\`` : "None", inline: false }
-          )
-          .setFooter({ text: `Use /errors lookup ${record.id} for complete details` })
+        detailEmbed(record).setAuthor({ name: `Report ${index + 1} of ${records.length}` })
       );
-
-      await paginate(interaction, pages, { ephemeral: true });
+      await paginate(interaction, pages, {
+        ephemeral: true,
+        onError: (error) => logger.warn("Error list paginator failed", error),
+      });
     }
   },
-};
+});
 
 export default command;

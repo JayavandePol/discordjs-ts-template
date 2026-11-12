@@ -1,80 +1,105 @@
-import fs from "node:fs";
-import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { pino, stdSerializers, type Logger as PinoLogger, type LoggerOptions } from "pino";
 
 export type LogLevel = "debug" | "info" | "warn" | "error";
 
-// Priority weights for filtering log level output
-const levelPriority: Record<LogLevel, number> = {
-  debug: 10,
-  info: 20,
-  warn: 30,
-  error: 40,
+// Keys whose values are replaced with "[redacted]" wherever they appear in log metadata
+const REDACT_PATHS = [
+  "token",
+  "*.token",
+  "authorization",
+  "*.authorization",
+  "password",
+  "*.password",
+  "meta.options",
+];
+
+// Pretty output only in development, and only when pino-pretty (a dev dependency) is installed
+const prettyTransport = (): LoggerOptions["transport"] => {
+  if (process.env.NODE_ENV === "production" || process.env.LOG_FORMAT === "json") return undefined;
+  try {
+    import.meta.resolve("pino-pretty");
+  } catch {
+    return undefined;
+  }
+  return { target: "pino-pretty", options: { colorize: true, translateTime: "SYS:HH:MM:ss" } };
 };
 
-// Resolve logs output directory
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const logDir = path.resolve(__dirname, "../../logs");
+// Normalizes the second logger argument into a pino merge object.
+// Errors are always serialized with name, message, stack and cause instead of becoming `{}`.
+const toMergeObject = (meta: unknown): Record<string, unknown> | undefined => {
+  if (meta === undefined || meta === null || meta === "") return undefined;
+  if (meta instanceof Error) return { err: meta };
+  if (typeof meta === "object" && !Array.isArray(meta)) return meta as Record<string, unknown>;
+  return { meta };
+};
 
 /**
- * Structured Logger that writes human-readable messages to stdout/stderr
- * and appends structured JSON lines to daily log files on disk.
+ * Structured JSON logger writing to stdout (pretty-printed in development).
+ * Log files, rotation and shipping are left to the runtime (Docker, systemd, PM2).
  */
 export class Logger {
-  private currentLevel: LogLevel;
-  private stream: fs.WriteStream | null = null;
+  readonly pino: PinoLogger;
 
-  constructor(level: LogLevel = "info") {
-    this.currentLevel = level;
-    if (!fs.existsSync(logDir)) {
-      fs.mkdirSync(logDir, { recursive: true });
-    }
+  constructor(level: LogLevel = "info", instance?: PinoLogger) {
+    this.pino =
+      instance ??
+      pino({
+        level,
+        redact: { paths: REDACT_PATHS, censor: "[redacted]" },
+        serializers: { err: stdSerializers.err, error: stdSerializers.err },
+        transport: prettyTransport(),
+      });
   }
 
-  // Updates active minimum log level dynamically
   setLevel(level: LogLevel) {
-    this.currentLevel = level;
+    this.pino.level = level;
   }
 
-  // Log debug messages (verbose internal state)
+  child(bindings: Record<string, unknown>): Logger {
+    return new Logger(this.pino.level as LogLevel, this.pino.child(bindings));
+  }
+
   debug(message: string, meta?: unknown) {
     this.write("debug", message, meta);
   }
 
-  // Log informational messages (standard operational events)
   info(message: string, meta?: unknown) {
     this.write("info", message, meta);
   }
 
-  // Log warning messages (non-fatal issues or permission blocks)
   warn(message: string, meta?: unknown) {
     this.write("warn", message, meta);
   }
 
-  // Log error messages (uncaught exceptions or failed operations)
   error(message: string, meta?: unknown) {
     this.write("error", message, meta);
   }
 
-  // Internal write pipeline
+  /** Flushes buffered output; resolves after at most `timeoutMs` even if the destination hangs. */
+  flush(timeoutMs = 2000): Promise<void> {
+    return new Promise((resolve) => {
+      const timer = setTimeout(resolve, timeoutMs);
+      timer.unref();
+      try {
+        this.pino.flush(() => {
+          clearTimeout(timer);
+          resolve();
+        });
+      } catch {
+        clearTimeout(timer);
+        resolve();
+      }
+    });
+  }
+
   private write(level: LogLevel, message: string, meta?: unknown) {
-    if (levelPriority[level] < levelPriority[this.currentLevel]) return;
-
-    const timestamp = new Date().toISOString();
-    const record = { timestamp, level, message, meta };
-    const line = JSON.stringify(record);
-
-    // Console output with appropriate stream method
-    const consoleMethod =
-      level === "error" ? console.error : level === "warn" ? console.warn : console.log;
-    consoleMethod(`${timestamp} [${level.toUpperCase()}] ${message}`, meta ?? "");
-
-    // Daily rotating file stream write
-    const fileName = path.join(logDir, `${timestamp.slice(0, 10)}.log`);
-    if (!this.stream || this.stream.path !== fileName) {
-      this.stream?.end();
-      this.stream = fs.createWriteStream(fileName, { flags: "a" });
+    const merge = toMergeObject(meta);
+    try {
+      if (merge) this.pino[level](merge, message);
+      else this.pino[level](message);
+    } catch (logError) {
+      // Logging must never take the bot down (e.g. a BigInt or circular value in metadata)
+      process.stderr.write(`[logger] failed to write log line: ${String(logError)} | ${message}\n`);
     }
-    this.stream.write(line + "\n");
   }
 }

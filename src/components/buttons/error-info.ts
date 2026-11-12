@@ -1,60 +1,36 @@
-import { EmbedBuilder, GuildMember } from "discord.js";
-import { ButtonHandler } from "../../types/Component.js";
-import { Config } from "../../config/config.js";
+import { EmbedBuilder, MessageFlags } from "discord.js";
+import { defineButton } from "../../types/Component.js";
+import { EmbedColors } from "../../utils/embeds.js";
 
-// Truncates lengthy strings to keep the embed description within Discord's 4096-character limit
+// Keeps the embed description within Discord's 4096-character limit
 const truncate = (value: string, max: number) =>
   value.length > max ? `${value.slice(0, max - 3)}...` : value;
 
-// Helper function to verify developer access
-const isDeveloper = (
-  userId: string,
-  member: GuildMember | null,
-  config: Config
-): boolean => {
-  if (config.devUserIds.includes(userId)) return true;
-  if (config.devRoleId && member && member.roles.cache.has(config.devRoleId)) return true;
-  return false;
-};
-
-// Modular button handler for error report inspection
-const button: ButtonHandler = {
-  // Matches customId starting with "error:info:"
+// "Inspect Stack" button on error log messages. Stack traces and internal paths are for
+// developers only, so this button uses the same developer access check as /errors.
+const button = defineButton({
   customId: /^error:info:.+$/,
+  access: "developer",
 
-  async execute(interaction, context) {
-    const { errorStore, config, logger } = context;
-    const id = interaction.customId.replace("error:info:", "");
+  async execute(interaction, { errorStore }) {
+    const id = interaction.customId.slice("error:info:".length);
 
     if (!errorStore) {
       await interaction.reply({
         content: "Error records are not available because the database is disabled.",
-        ephemeral: true,
+        flags: MessageFlags.Ephemeral,
       });
       return;
     }
 
     const record = await errorStore.getById(id);
     if (!record) {
-      await interaction.reply({ content: "No error record found with that ID.", ephemeral: true });
+      await interaction.reply({ content: "No error record found with that ID.", flags: MessageFlags.Ephemeral });
       return;
     }
 
-    const meta = (record.meta as Record<string, unknown>) ?? {};
-    const isOwner = meta.userId === interaction.user.id;
-    const member = interaction.inCachedGuild() ? interaction.member : null;
-    const isDev = isDeveloper(interaction.user.id, member, config);
-
-    // Restrict stack trace inspection to triggering user or authorized bot developers
-    if (!isOwner && !isDev) {
-      await interaction.reply({
-        content: "You do not have permission to view this error's internal details.",
-        ephemeral: true,
-      });
-      return;
-    }
-
-    const fields = [
+    const meta = record.meta ?? {};
+    const lines = [
       `**Context:** ${record.context}`,
       `**User:** ${meta.userId ? `<@${meta.userId}>` : "Unknown"}`,
       `**Guild:** ${meta.guildId ?? "DM/Unknown"}`,
@@ -63,27 +39,17 @@ const button: ButtonHandler = {
     ];
 
     if (record.stack) {
-      fields.push("\n**Stack Trace:**");
-      fields.push("```");
-      fields.push(truncate(record.stack, 1500));
-      fields.push("```");
+      lines.push("\n**Stack Trace:**", "```", truncate(record.stack, 1500), "```");
     }
 
     const embed = new EmbedBuilder()
       .setTitle(`Error Details (${record.id})`)
-      .setDescription(fields.join("\n"))
-      .setColor(0xf04747)
-      .setTimestamp(new Date(record.timestamp));
+      .setDescription(lines.join("\n"))
+      .setColor(EmbedColors.Error)
+      .setTimestamp(record.createdAt);
 
-    try {
-      await interaction.reply({
-        embeds: [embed],
-        ephemeral: true,
-      });
-    } catch (err) {
-      logger.error("Failed to send error detail reply", err);
-    }
+    await interaction.reply({ embeds: [embed], flags: MessageFlags.Ephemeral });
   },
-};
+});
 
 export default button;

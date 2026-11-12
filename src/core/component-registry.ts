@@ -1,115 +1,92 @@
-import fs from "node:fs/promises";
 import path from "node:path";
-import { fileURLToPath, pathToFileURL } from "node:url";
+import { fileURLToPath } from "node:url";
 import {
-  ButtonHandler,
-  SelectMenuHandler,
-  ModalHandler,
+  type ButtonHandler,
+  COLLECTOR_PREFIX,
+  type ModalHandler,
+  type SelectMenuHandler,
 } from "../types/Component.js";
-import { Logger } from "../utils/logger.js";
+import type { Logger } from "../utils/logger.js";
+import { resolveAccess } from "./access.js";
+import { isObject, loadModules } from "./module-loader.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
-const isScriptFile = (file: string) =>
-  (file.endsWith(".ts") || file.endsWith(".js")) && !file.endsWith(".d.ts");
+type AnyHandler = ButtonHandler | SelectMenuHandler | ModalHandler;
 
-// Recursively discovers all handler files in a directory
-const collectFiles = async (dir: string): Promise<string[]> => {
-  try {
-    const entries = await fs.readdir(dir, { withFileTypes: true });
-    const files: string[] = [];
-    for (const entry of entries) {
-      const fullPath = path.join(dir, entry.name);
-      if (entry.isDirectory()) {
-        files.push(...(await collectFiles(fullPath)));
-      } else if (entry.isFile() && isScriptFile(entry.name)) {
-        files.push(fullPath);
-      }
-    }
-    return files;
-  } catch {
-    // Directory might not exist yet
-    return [];
-  }
-};
+const isHandler = (value: unknown): value is AnyHandler =>
+  isObject(value) &&
+  (typeof value.customId === "string" || value.customId instanceof RegExp) &&
+  typeof value.execute === "function";
+
+// RegExp.test() with the g or y flag is stateful (lastIndex), which makes matching flaky
+const withoutStatefulFlags = (pattern: RegExp) =>
+  pattern.global || pattern.sticky ? new RegExp(pattern.source, pattern.flags.replace(/[gy]/g, "")) : pattern;
+
+const matches = (handler: AnyHandler, customId: string) =>
+  typeof handler.customId === "string" ? handler.customId === customId : handler.customId.test(customId);
 
 /**
- * Registry managing all button, select menu, and modal component handlers.
+ * Registry of button, select menu and modal handlers loaded from
+ * src/components/{buttons,selectMenus,modals}.
  */
 export class ComponentRegistry {
   private buttons: ButtonHandler[] = [];
   private selectMenus: SelectMenuHandler[] = [];
   private modals: ModalHandler[] = [];
 
-  constructor(private logger: Logger) {}
+  constructor(
+    private logger: Logger,
+    private componentsDir = path.resolve(__dirname, "../components")
+  ) {}
 
-  /**
-   * Discovers and registers component modules from src/components/{buttons,selectMenus,modals}.
-   */
   async loadAll(): Promise<void> {
-    const componentsDir = path.resolve(__dirname, "../components");
-
-    // 1. Load Button handlers
-    const buttonFiles = await collectFiles(path.join(componentsDir, "buttons"));
-    for (const file of buttonFiles) {
-      const module = await import(pathToFileURL(file).href);
-      if (module.default) {
-        this.buttons.push(module.default);
-        this.logger.debug("Loaded button component", { file: path.basename(file) });
-      }
-    }
-
-    // 2. Load Select Menu handlers
-    const selectFiles = await collectFiles(path.join(componentsDir, "selectMenus"));
-    for (const file of selectFiles) {
-      const module = await import(pathToFileURL(file).href);
-      if (module.default) {
-        this.selectMenus.push(module.default);
-        this.logger.debug("Loaded select menu component", { file: path.basename(file) });
-      }
-    }
-
-    // 3. Load Modal handlers
-    const modalFiles = await collectFiles(path.join(componentsDir, "modals"));
-    for (const file of modalFiles) {
-      const module = await import(pathToFileURL(file).href);
-      if (module.default) {
-        this.modals.push(module.default);
-        this.logger.debug("Loaded modal component", { file: path.basename(file) });
-      }
-    }
+    this.buttons = await this.load<ButtonHandler>("buttons");
+    this.selectMenus = await this.load<SelectMenuHandler>("selectMenus");
+    this.modals = await this.load<ModalHandler>("modals");
   }
 
-  /**
-   * Matches a Button interaction's customId against registered button handlers (exact string or RegExp).
-   */
+  /** True for customIds owned by a message collector rather than a registered handler. */
+  isCollectorOwned(customId: string): boolean {
+    return customId.startsWith(COLLECTOR_PREFIX);
+  }
+
   findButton(customId: string): ButtonHandler | undefined {
-    return this.buttons.find((handler) =>
-      typeof handler.customId === "string"
-        ? handler.customId === customId
-        : handler.customId.test(customId)
-    );
+    return this.buttons.find((handler) => matches(handler, customId));
   }
 
-  /**
-   * Matches a Select Menu interaction's customId against registered select menu handlers.
-   */
   findSelectMenu(customId: string): SelectMenuHandler | undefined {
-    return this.selectMenus.find((handler) =>
-      typeof handler.customId === "string"
-        ? handler.customId === customId
-        : handler.customId.test(customId)
-    );
+    return this.selectMenus.find((handler) => matches(handler, customId));
   }
 
-  /**
-   * Matches a Modal submission's customId against registered modal handlers.
-   */
   findModal(customId: string): ModalHandler | undefined {
-    return this.modals.find((handler) =>
-      typeof handler.customId === "string"
-        ? handler.customId === customId
-        : handler.customId.test(customId)
-    );
+    return this.modals.find((handler) => matches(handler, customId));
+  }
+
+  private async load<T extends AnyHandler>(folder: string): Promise<T[]> {
+    const dir = path.join(this.componentsDir, folder);
+    const handlers: T[] = [];
+    const exactIds = new Set<string>();
+
+    for (const { file, value } of await loadModules(dir, isHandler, `${folder} handler`)) {
+      const handler = value as T;
+      handler.access = resolveAccess(file, handler.access);
+      if (typeof handler.customId === "string") {
+        if (handler.customId.startsWith(COLLECTOR_PREFIX)) {
+          throw new Error(`"${file}": customIds starting with "${COLLECTOR_PREFIX}" are reserved for collectors.`);
+        }
+        if (exactIds.has(handler.customId)) {
+          throw new Error(`Duplicate ${folder} customId "${handler.customId}" in "${file}".`);
+        }
+        exactIds.add(handler.customId);
+      } else {
+        handler.customId = withoutStatefulFlags(handler.customId);
+      }
+
+      handlers.push(handler);
+      this.logger.debug(`Loaded ${folder} handler`, { file });
+    }
+
+    return handlers;
   }
 }

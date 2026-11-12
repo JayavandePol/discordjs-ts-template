@@ -1,10 +1,10 @@
-import { Client } from "discord.js";
-import { Config } from "../config/config.js";
-import { Logger } from "../utils/logger.js";
-import { Command } from "./Command.js";
-import { ErrorStore } from "../data/error-store.js";
-import { CooldownManager } from "../utils/cooldown-manager.js";
-import { ComponentRegistry } from "../core/component-registry.js";
+import type { Client } from "discord.js";
+import type { Config } from "../config/config.js";
+import type { Logger } from "../utils/logger.js";
+import type { Command } from "./Command.js";
+import type { ErrorStore } from "../data/error-store.js";
+import type { CooldownManager } from "../utils/cooldown-manager.js";
+import type { ComponentRegistry } from "../core/component-registry.js";
 
 /**
  * Shared bot runtime context passed to all command and event executions.

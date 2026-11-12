@@ -1,13 +1,12 @@
 import {
   ContextMenuCommandBuilder,
   ApplicationCommandType,
-  UserContextMenuCommandInteraction,
   EmbedBuilder,
 } from "discord.js";
-import { Command } from "../types/Command.js";
+import { defineUserCommand } from "../types/Command.js";
 
 // User Context Menu command triggered by right-clicking any user in Discord -> Apps -> "User Info"
-const command: Command<UserContextMenuCommandInteraction> = {
+const command = defineUserCommand({
   data: new ContextMenuCommandBuilder()
     .setName("User Info")
     .setType(ApplicationCommandType.User),
@@ -20,7 +19,7 @@ const command: Command<UserContextMenuCommandInteraction> = {
     const targetMember = interaction.targetMember;
 
     const embed = new EmbedBuilder()
-      .setTitle(`User Profile: ${targetUser.tag}`)
+      .setTitle(`User Profile: ${targetUser.username}`)
       .setThumbnail(targetUser.displayAvatarURL({ size: 256 }))
       .setColor(0x5865f2)
       .addFields(
@@ -44,6 +43,6 @@ const command: Command<UserContextMenuCommandInteraction> = {
       target: targetUser.id,
     });
   },
-};
+});
 
 export default command;

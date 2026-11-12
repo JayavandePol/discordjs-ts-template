@@ -1,140 +1,109 @@
 import fs from "node:fs";
 import path from "node:path";
-import { createClient } from "@libsql/client";
-import { drizzle as drizzleSqlite, LibSQLDatabase } from "drizzle-orm/libsql";
-import postgres from "postgres";
-import { drizzle as drizzlePg, PostgresJsDatabase } from "drizzle-orm/postgres-js";
-import mysql from "mysql2/promise";
-import { drizzle as drizzleMysql, MySql2Database } from "drizzle-orm/mysql2";
-import { Config } from "../config/config.js";
-import { Logger } from "../utils/logger.js";
+import { fileURLToPath } from "node:url";
+import { sql } from "drizzle-orm";
+import type { LibSQLDatabase } from "drizzle-orm/libsql";
+import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
+import type { Logger as DrizzleLogger } from "drizzle-orm/logger";
+import type { Config } from "../config/config.js";
+import type { Logger } from "../utils/logger.js";
+import type { DatabaseDialect } from "./database-url.js";
 import * as sqliteSchema from "./schema/sqlite.js";
 import * as pgSchema from "./schema/pg.js";
-import * as mysqlSchema from "./schema/mysql.js";
 
-// Supported SQL Dialects
-export type DatabaseDialect = "sqlite" | "postgres" | "mysql";
+export type { DatabaseDialect } from "./database-url.js";
 
-// Unified wrapper holding the active Drizzle database client and dialect
-export type DatabaseConnection = {
-  dialect: DatabaseDialect;
-  sqlite?: LibSQLDatabase<typeof sqliteSchema>;
-  pg?: PostgresJsDatabase<typeof pgSchema>;
-  mysql?: MySql2Database<typeof mysqlSchema>;
-  close: () => Promise<void> | void;
-};
+// drizzle/sqlite and drizzle/pg, from both src/data and dist/data
+const MIGRATIONS_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../drizzle");
 
-// Ensures parent directories exist on disk for SQLite files
-const ensureDir = (filePath: string) => {
-  const dir = path.dirname(filePath);
-  if (!fs.existsSync(dir)) {
-    fs.mkdirSync(dir, { recursive: true });
-  }
-};
+export type DatabaseConnection =
+  | { dialect: "sqlite"; db: LibSQLDatabase<typeof sqliteSchema>; close: () => Promise<void> }
+  | { dialect: "postgres"; db: PostgresJsDatabase<typeof pgSchema>; close: () => Promise<void> };
+
+// DB_LOGGING=true logs each query at debug level (parameters are left out: they can hold user data)
+const queryLogger = (logger: Logger): DrizzleLogger => ({
+  logQuery: (query, params) => logger.debug("Database query", { query, params: params.length }),
+});
 
 /**
- * Automatically inspects the configured connection URL or defaults to resolve the database dialect.
+ * Connects to the database from DATABASE_URL, checks it answers and applies pending migrations.
+ * Drivers are imported on demand, so an unused driver is never loaded.
  */
-export const detectDialect = (config: Config): DatabaseDialect => {
-  const url = config.database.url?.toLowerCase().trim();
-  if (!url) return "sqlite";
-
-  if (url.startsWith("postgres://") || url.startsWith("postgresql://")) {
-    return "postgres";
-  }
-
-  if (url.startsWith("mysql://") || url.startsWith("mariadb://")) {
-    return "mysql";
-  }
-
-  return "sqlite";
-};
-
-/**
- * Initializes a multi-dialect Drizzle ORM connection based on environment configuration.
- *
- * - SQLite (Default): Runs locally with `@libsql/client` (zero server config, no build tools required).
- * - PostgreSQL: Automatically boots when DATABASE_URL is `postgres://` or `postgresql://`.
- * - MySQL/MariaDB: Automatically boots when DATABASE_URL is `mysql://` or `mariadb://`.
- */
-export const initDatabase = async (
-  config: Config,
-  logger: Logger
-): Promise<DatabaseConnection | null> => {
+export const initDatabase = async (config: Config, logger: Logger): Promise<DatabaseConnection | null> => {
   if (!config.database.enabled) {
-    logger.info("Database is disabled in configuration; persistent storage will be skipped.");
+    logger.info("Database is disabled (DB_ENABLED=false); error reports will only be logged.");
     return null;
   }
 
-  const dialect = detectDialect(config);
-  logger.info(`Initializing Drizzle ORM with dialect: ${dialect.toUpperCase()}`);
+  const { target } = config.database;
+  const drizzleLogger = config.database.logging ? queryLogger(logger) : undefined;
+  logger.info(`Connecting to ${target.dialect === "postgres" ? "PostgreSQL" : "SQLite"}...`);
 
-  if (dialect === "postgres") {
-    // Connect to PostgreSQL / Supabase / Neon
-    const client = postgres(config.database.url!);
-    const db = drizzlePg(client, { schema: pgSchema });
+  const connection = target.dialect === "postgres"
+    ? await connectPostgres(target.url, drizzleLogger)
+    : await connectSqlite(target, config.database.authToken, drizzleLogger);
 
-    return {
-      dialect: "postgres",
-      pg: db,
-      close: async () => {
-        await client.end();
-      },
-    };
+  try {
+    if (connection.dialect === "sqlite") await connection.db.run(sql`select 1`);
+    else await connection.db.execute(sql`select 1`);
+  } catch (error) {
+    await connection.close().catch(() => undefined);
+    throw new Error(`Could not reach the database: ${(error as Error).message}`, { cause: error });
   }
 
-  if (dialect === "mysql") {
-    // Connect to MySQL / MariaDB / PlanetScale
-    const pool = mysql.createPool(config.database.url!);
-    const db = drizzleMysql(pool, { schema: mysqlSchema, mode: "default" });
-
-    return {
-      dialect: "mysql",
-      mysql: db,
-      close: async () => {
-        await pool.end();
-      },
-    };
+  // Bring the schema up to date before the bot starts handling interactions
+  try {
+    await runMigrations(connection);
+  } catch (error) {
+    await connection.close().catch(() => undefined);
+    throw new Error(`Database migration failed: ${(error as Error).message}`, { cause: error });
   }
+  logger.info("Database migrations are up to date.");
 
-  // Default: SQLite, via libSQL (ships prebuilt native bindings for every platform,
-  // so forking this template never requires a local C++ toolchain to run `npm install`).
-  const sqlitePath = config.database.url
-    ? config.database.url.replace(/^file:/, "")
-    : config.database.storage;
+  return connection;
+};
 
-  const resolvedPath = path.resolve(sqlitePath);
-  ensureDir(resolvedPath);
+const connectPostgres = async (url: string, logger?: DrizzleLogger): Promise<DatabaseConnection> => {
+  const { default: postgres } = await import("postgres");
+  const { drizzle } = await import("drizzle-orm/postgres-js");
 
-  const client = createClient({ url: `file:${resolvedPath}` });
-  // Enable Write-Ahead Logging (WAL) for superior concurrency and performance in SQLite
-  await client.execute("PRAGMA journal_mode = WAL;");
+  const client = postgres(url, { max: 10, onnotice: () => undefined });
+  return {
+    dialect: "postgres",
+    db: drizzle(client, { schema: pgSchema, logger }),
+    close: () => client.end({ timeout: 5 }),
+  };
+};
 
-  const db = drizzleSqlite(client, { schema: sqliteSchema });
+const connectSqlite = async (
+  target: { url: string; filePath?: string },
+  authToken: string | undefined,
+  logger?: DrizzleLogger
+): Promise<DatabaseConnection> => {
+  const { createClient } = await import("@libsql/client");
+  const { drizzle } = await import("drizzle-orm/libsql");
 
-  // Automatically create the errors table if it does not yet exist in SQLite
-  await client.execute(`
-    CREATE TABLE IF NOT EXISTS errors (
-      id TEXT PRIMARY KEY,
-      timestamp TEXT NOT NULL,
-      severity TEXT NOT NULL DEFAULT 'error',
-      context TEXT NOT NULL,
-      name TEXT,
-      message TEXT NOT NULL,
-      stack TEXT,
-      guild_id TEXT,
-      user_id TEXT,
-      command TEXT,
-      meta TEXT,
-      occurrences INTEGER NOT NULL DEFAULT 1
-    );
-  `);
+  if (target.filePath) fs.mkdirSync(path.dirname(target.filePath), { recursive: true });
+
+  const client = createClient({ url: target.url, authToken });
+  // Write-ahead logging lets reads continue while a write is in progress (local files only)
+  if (target.filePath) await client.execute("PRAGMA journal_mode = WAL;");
 
   return {
     dialect: "sqlite",
-    sqlite: db,
-    close: () => {
-      client.close();
-    },
+    db: drizzle(client, { schema: sqliteSchema, logger }),
+    close: async () => client.close(),
   };
 };
+
+const runMigrations = async (connection: DatabaseConnection) => {
+  if (connection.dialect === "postgres") {
+    const { migrate } = await import("drizzle-orm/postgres-js/migrator");
+    await migrate(connection.db, { migrationsFolder: path.join(MIGRATIONS_ROOT, "pg") });
+  } else {
+    const { migrate } = await import("drizzle-orm/libsql/migrator");
+    await migrate(connection.db, { migrationsFolder: path.join(MIGRATIONS_ROOT, "sqlite") });
+  }
+};
+
+export const describeDatabase = (dialect: DatabaseDialect) => (dialect === "postgres" ? "PostgreSQL" : "SQLite");

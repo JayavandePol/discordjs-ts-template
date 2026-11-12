@@ -1,34 +1,64 @@
 import {
-  CommandInteraction,
-  MessageComponentInteraction,
-  ModalSubmitInteraction,
-  EmbedBuilder,
   ActionRowBuilder,
+  ApplicationCommandOptionType,
+  type CommandInteractionOption,
   ButtonBuilder,
   ButtonStyle,
+  EmbedBuilder,
 } from "discord.js";
-import { BotContext } from "../types/Context.js";
-import { ErrorMeta } from "../types/ErrorMeta.js";
+import type { BotContext } from "../types/Context.js";
+import type { ErrorMeta } from "../types/ErrorMeta.js";
 import { captureError } from "./error-reporter.js";
 import { notifyErrorLogChannel } from "./error-log.js";
+import { EmbedColors } from "./embeds.js";
+import { type RepliableInteraction, sendEphemeral } from "./reply.js";
+import { UserError } from "./user-error.js";
+
+export type { RepliableInteraction } from "./reply.js";
+
+const isUserError = (error: unknown): error is UserError =>
+  error instanceof UserError || (error instanceof Error && error.name === "UserError");
+
+// Collects option names (never values), including options nested in subcommands
+const collectOptionNames = (options: readonly CommandInteractionOption[]): string[] =>
+  options.flatMap((option) =>
+    option.type === ApplicationCommandOptionType.Subcommand || option.type === ApplicationCommandOptionType.SubcommandGroup
+      ? collectOptionNames(option.options ?? [])
+      : [option.name]
+  );
+
+const buildMeta = (interaction: RepliableInteraction): ErrorMeta => {
+  const meta: ErrorMeta = {
+    userId: interaction.user.id,
+    guildId: interaction.guildId ?? undefined,
+    channelId: interaction.channelId ?? undefined,
+  };
+
+  if (interaction.isChatInputCommand()) {
+    const group = interaction.options.getSubcommandGroup(false);
+    const subcommand = interaction.options.getSubcommand(false);
+    const optionNames = collectOptionNames(interaction.options.data);
+    meta.command = interaction.commandName;
+    meta.subcommand = [group, subcommand].filter(Boolean).join(" ") || undefined;
+    meta.optionNames = optionNames.length > 0 ? optionNames : undefined;
+  } else if (interaction.isCommand()) {
+    meta.command = interaction.commandName;
+  } else {
+    // Buttons, select menus and modals: the customId says what was used; modal text is never stored
+    meta.command = interaction.customId;
+  }
+
+  return meta;
+};
 
 /**
- * Any interaction type that supports reply/editReply.
- * Covers: slash commands, buttons, select menus, modals, context menus.
- */
-export type RepliableInteraction =
-  | CommandInteraction
-  | MessageComponentInteraction
-  | ModalSubmitInteraction;
-
-/**
- * Universal error handler for all interaction types.
+ * Central error handler for every interaction type.
  *
- * Captures the error, creates/increments a deterministic DB record, notifies
- * the error log channel, and replies to the user with a friendly embed + "Contact Developer" button.
+ * - UserError: the message is shown to the user as a notice; nothing is logged as a crash.
+ * - Anything else: logged, stored, posted to the error log channel, and the user gets an error ID.
  *
- * Most slash commands don't need manual try/catch as the central handler in `interactionCreate.ts`
- * automatically catches unhandled exceptions.
+ * Each stage is best-effort and this function never throws, so a broken database, log channel
+ * or SUPPORT_URL can't turn one failed command into a crashed bot.
  */
 export const handleInteractionError = async (
   interaction: RepliableInteraction,
@@ -37,98 +67,50 @@ export const handleInteractionError = async (
   contextLabel: string,
   meta?: ErrorMeta
 ): Promise<void> => {
-  // Extract interaction input options for contextual debugging
-  const options: Record<string, string | number | boolean> = {};
-
-  if (interaction.isChatInputCommand() && interaction.options.data) {
-    for (const opt of interaction.options.data) {
-      if (opt.value !== undefined) {
-        options[opt.name] = opt.value;
-      }
-    }
-  } else if (interaction.isModalSubmit()) {
-    for (const [key, field] of interaction.fields.fields) {
-      if ("value" in field && field.value !== null && field.value !== undefined) {
-        options[key] = field.value;
-      }
-    }
-  }
-
-  // Construct error metadata snapshot
-  const errorMeta: ErrorMeta = meta ?? {
-    userId: interaction.user.id,
-    guildId: interaction.guildId ?? undefined,
-    channelId: interaction.channelId ?? undefined,
-    command: "commandName" in interaction ? interaction.commandName : undefined,
-    options: Object.keys(options).length > 0 ? options : undefined,
-  };
-
-  // Expected user errors (validation, insufficient balance, etc.) should not generate crash reports
-  if (error && typeof error === "object" && "name" in error && error.name === "UserError") {
-    const message = "message" in error ? String(error.message) : "An expected error occurred.";
-
-    const response = {
-      embeds: [new EmbedBuilder().setTitle("Notice").setDescription(message).setColor(0xeeb902)],
-      ephemeral: true,
-    };
-
-    try {
-      if (interaction.deferred || interaction.replied) await interaction.editReply(response);
-      else await interaction.reply(response);
-    } catch (replyError) {
-      context.logger.error("Failed to send UserError response", replyError);
-    }
-    return;
-  }
-
-  // Capture unexpected crash report, persist to DB and log
-  const report = await captureError(
-    context.logger,
-    error,
-    contextLabel,
-    context.errorStore,
-    errorMeta
-  );
-
-  // Send notification to designated developer error log channel
-  await notifyErrorLogChannel(context, {
-    report,
-    meta: errorMeta,
-    contextLabel,
-  });
-
-  // User-facing friendly error embed with error ID for reference
-  const embed = new EmbedBuilder()
-    .setTitle("Something went wrong")
-    .setDescription(
-      "We ran into an unexpected error while handling your request. " +
-        "Please contact the developers and share this error ID so we can investigate.\n\n" +
-        `Error ID: **${report.id}**`
-    )
-    .setColor(0xf04747);
-
-  const components: ActionRowBuilder<ButtonBuilder>[] = [];
-
-  // Add "Contact Developer" button if a support URL is configured
-  if (context.config.supportUrl) {
-    const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
-      new ButtonBuilder()
-        .setLabel("Contact Developer")
-        .setStyle(ButtonStyle.Link)
-        .setURL(context.config.supportUrl)
-    );
-    components.push(row);
-  }
-
-  const response = { embeds: [embed], components, ephemeral: true };
+  const { logger } = context;
 
   try {
-    if (interaction.deferred || interaction.replied) {
-      await interaction.editReply(response);
-    } else {
-      await interaction.reply(response);
+    if (isUserError(error)) {
+      const embed = new EmbedBuilder().setTitle("Notice").setDescription(error.message).setColor(EmbedColors.Warning);
+      await sendEphemeral(interaction, { embeds: [embed] }).catch((replyError: unknown) =>
+        logger.error("Failed to send UserError response", replyError)
+      );
+      return;
     }
-  } catch (replyError) {
-    context.logger.error("Failed to send error response to user", replyError);
+
+    const errorMeta = meta ?? buildMeta(interaction);
+    const report = await captureError(logger, error, contextLabel, context.errorStore, errorMeta);
+
+    await notifyErrorLogChannel(context, { report, meta: errorMeta, contextLabel }).catch((notifyError: unknown) =>
+      logger.error("Failed to notify error log channel", notifyError)
+    );
+
+    const embed = new EmbedBuilder()
+      .setTitle("Something went wrong")
+      .setDescription(
+        "We ran into an unexpected error while handling your request. " +
+          "Please contact the developers and share this error ID so we can investigate.\n\n" +
+          `Error ID: **${report.id}**`
+      )
+      .setColor(EmbedColors.Error);
+
+    const components: ActionRowBuilder<ButtonBuilder>[] = [];
+    if (context.config.supportUrl) {
+      try {
+        components.push(
+          new ActionRowBuilder<ButtonBuilder>().addComponents(
+            new ButtonBuilder().setLabel("Contact Developer").setStyle(ButtonStyle.Link).setURL(context.config.supportUrl)
+          )
+        );
+      } catch (buttonError) {
+        logger.warn("SUPPORT_URL is not a valid link button URL; sending the error without it", buttonError);
+      }
+    }
+
+    await sendEphemeral(interaction, { embeds: [embed], components }).catch((replyError: unknown) =>
+      logger.error("Failed to send error response to user", replyError)
+    );
+  } catch (handlerError) {
+    logger.error("Error handler failed", { err: handlerError, original: error, contextLabel });
   }
 };

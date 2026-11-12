@@ -1,17 +1,17 @@
 import { Events } from "discord.js";
-import { Event } from "../types/Event.js";
-import { registerApplicationCommands } from "../core/command-publisher.js";
+import { defineEvent } from "../types/Event.js";
+import { defaultScope, registerApplicationCommands } from "../core/command-publisher.js";
 import { captureError } from "../utils/error-reporter.js";
 
 // ClientReady event handler triggered once the Discord bot successfully establishes a gateway connection
-const event: Event<Events.ClientReady> = {
+const event = defineEvent({
   name: Events.ClientReady,
   once: true,
   async execute(client, context) {
     const { logger, config, commands } = context;
 
     // Log successful authentication and bot tag
-    logger.info(`Ready! Logged in as ${client.user?.tag} (${client.user?.id})`);
+    logger.info(`Ready! Logged in as ${client.user.username} (${client.user?.id})`);
 
     // Guard command registration: Discord rate limits global/guild command PUT endpoints (200 requests/day).
     // In local development with file watchers (like tsx watch / nodemon), deploying on every restart will quickly
@@ -19,7 +19,7 @@ const event: Event<Events.ClientReady> = {
     if (config.autoRegisterCommands) {
       try {
         logger.info("AUTO_REGISTER_COMMANDS is true; publishing application commands to Discord...");
-        await registerApplicationCommands(commands, config, logger);
+        await registerApplicationCommands(commands, config, logger, defaultScope(config));
       } catch (error) {
         const report = await captureError(
           logger,
@@ -35,6 +35,6 @@ const event: Event<Events.ClientReady> = {
       );
     }
   },
-};
+});
 
 export default event;

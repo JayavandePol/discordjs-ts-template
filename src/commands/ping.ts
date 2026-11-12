@@ -1,9 +1,9 @@
 import { SlashCommandBuilder } from "discord.js";
-import { Command } from "../types/Command.js";
+import { defineSlashCommand } from "../types/Command.js";
 import { createSuccessEmbed } from "../utils/embeds.js";
 
 // Public ping command demonstrating latency measurement, cooldown, and embed formatting
-const command: Command = {
+const command = defineSlashCommand({
   // Define slash command metadata
   data: new SlashCommandBuilder()
     .setName("ping")
@@ -15,8 +15,9 @@ const command: Command = {
   // Command handler
   async execute(interaction, { logger }) {
     // Reply initially to calculate message round-trip latency
-    const sent = await interaction.reply({ content: "Pinging...", fetchReply: true });
-    const latency = sent.createdTimestamp - interaction.createdTimestamp;
+    const response = await interaction.reply({ content: "Pinging...", withResponse: true });
+    const sent = response.resource?.message;
+    const latency = sent ? sent.createdTimestamp - interaction.createdTimestamp : 0;
     const heartbeat = Math.round(interaction.client.ws.ping);
 
     // Format response with standard success embed
@@ -29,6 +30,6 @@ const command: Command = {
     await interaction.editReply({ content: null, embeds: [embed] });
     logger.info("Handled /ping", { user: interaction.user.id, latency, heartbeat });
   },
-};
+});
 
 export default command;

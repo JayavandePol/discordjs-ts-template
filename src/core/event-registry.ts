@@ -1,63 +1,39 @@
-import fs from "node:fs/promises";
 import path from "node:path";
-import { Client } from "discord.js";
-import { fileURLToPath, pathToFileURL } from "node:url";
-import { Event } from "../types/Event.js";
-import { BotContext } from "../types/Context.js";
-import { Logger } from "../utils/logger.js";
+import { fileURLToPath } from "node:url";
+import type { Client } from "discord.js";
+import type { Event } from "../types/Event.js";
+import type { BotContext } from "../types/Context.js";
+import type { Logger } from "../utils/logger.js";
+import { isObject, loadModules } from "./module-loader.js";
 
-// Resolve directory name in ESM
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
-// Filter out non-event files
-const isEventFile = (file: string) =>
-  (file.endsWith(".ts") || file.endsWith(".js")) && !file.endsWith(".d.ts");
-
-// Recursively traverse directory to find all event handler files
-const collectFiles = async (dir: string): Promise<string[]> => {
-  const entries = await fs.readdir(dir, { withFileTypes: true });
-  const files: string[] = [];
-  for (const entry of entries) {
-    const fullPath = path.join(dir, entry.name);
-    if (entry.isDirectory()) {
-      files.push(...(await collectFiles(fullPath)));
-    } else if (entry.isFile() && isEventFile(entry.name)) {
-      files.push(fullPath);
-    }
-  }
-  return files;
-};
+const isEvent = (value: unknown): value is Event =>
+  isObject(value) && typeof value.name === "string" && typeof value.execute === "function";
 
 /**
- * Dynamically loads and attaches all event listener modules located in src/events.
+ * Loads every event module in src/events and attaches it to the client.
  */
 export const registerEvents = async (
   client: Client,
   context: BotContext,
-  logger: Logger
+  logger: Logger,
+  eventsPath = path.resolve(__dirname, "../events")
 ): Promise<void> => {
-  const eventsPath = path.resolve(__dirname, "../events");
-  const files = await collectFiles(eventsPath);
+  for (const { file, value: event } of await loadModules(eventsPath, isEvent, "event")) {
+    // Event<K>.execute is typed per event; at this boundary the arguments come straight from discord.js
+    const execute = event.execute as (...args: unknown[]) => Promise<void>;
+    // discord.js re-emits rejected listeners as a client "error" event; catching here keeps the
+    // event name in the log and guarantees a failing listener never reaches the process handlers
+    const handler = (...args: unknown[]) => {
+      execute(...args, context).catch((error: unknown) =>
+        logger.error("Event handler failed", { event: event.name, file, err: error })
+      );
+    };
 
-  for (const file of files) {
-    const rel = path.relative(eventsPath, file);
-    const url = pathToFileURL(file).href;
-    const module = await import(url);
-    const event: Event | undefined = module.default;
+    if (event.once) client.once(event.name, handler);
+    else client.on(event.name, handler);
 
-    if (!event) {
-      logger.warn("Skipped event without default export", { file: rel });
-      continue;
-    }
-
-    // Wrap execution with the global context parameter
-    const handler = (...args: unknown[]) => event.execute(...(args as []), context);
-    if (event.once) {
-      client.once(event.name, handler);
-    } else {
-      client.on(event.name, handler);
-    }
-
-    logger.debug("Registered event", { name: event.name, file: rel });
+    logger.debug("Registered event", { name: event.name, file });
   }
 };

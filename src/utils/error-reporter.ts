@@ -1,17 +1,19 @@
-import { Logger } from "./logger.js";
-import { generateErrorHash, cleanStackTrace } from "./id.js";
-import { ErrorStore } from "../data/error-store.js";
-import { ErrorMeta } from "../types/ErrorMeta.js";
+import type { Logger } from "./logger.js";
+import { cleanStackTrace, errorFingerprint, generateReportId } from "./id.js";
+import type { ErrorStore } from "../data/error-store.js";
+import type { ErrorMeta } from "../types/ErrorMeta.js";
 
-// Result summary of a captured error
 export type ErrorReport = {
+  // Random per-occurrence ID shown to the user
   id: string;
+  // Groups occurrences of the same bug
+  fingerprint: string;
   userMessage: string;
 };
 
 /**
- * Captures an error, generates a deterministic 8-character hash from its sanitized stack trace,
- * logs it with structured metadata, and stores/upserts it in the database if available.
+ * Logs an error and stores it in the database when one is configured.
+ * Never throws: a failing database must not turn one error into a crash.
  */
 export const captureError = async (
   logger: Logger,
@@ -20,35 +22,30 @@ export const captureError = async (
   errorStore?: ErrorStore,
   meta?: ErrorMeta
 ): Promise<ErrorReport> => {
-  // Generate deterministic ID from stack trace and context
-  const id = generateErrorHash(error, context);
+  const id = generateReportId();
+  const fingerprint = errorFingerprint(error, context);
 
-  // Normalize error payload and sanitize stack trace
-  const payload =
-    error instanceof Error
-      ? { name: error.name, message: error.message, stack: error.stack ? cleanStackTrace(error.stack) : undefined }
-      : { message: String(error) };
+  logger.error(`Error captured (${context})`, { id, fingerprint, meta, err: error });
 
-  // Log structured error to file and console
-  logger.error(`Error captured (${context})`, { id, meta, ...payload });
-
-  // Store in the database (via Drizzle ORM) if database is enabled
   if (errorStore) {
-    await errorStore.recordError({
-      id,
-      context,
-      message: payload.message,
-      name: "name" in payload ? payload.name : undefined,
-      stack: "stack" in payload ? payload.stack : undefined,
-      meta,
-      guildId: meta?.guildId,
-      userId: meta?.userId,
-      command: meta?.command,
-    });
+    try {
+      await errorStore.record({
+        id,
+        fingerprint,
+        context,
+        name: error instanceof Error ? error.name : undefined,
+        message: error instanceof Error ? error.message : String(error),
+        stack: error instanceof Error && error.stack ? cleanStackTrace(error.stack) : undefined,
+        meta,
+      });
+    } catch (storeError) {
+      logger.error("Failed to store error report", { id, err: storeError });
+    }
   }
 
   return {
     id,
+    fingerprint,
     userMessage: `An unexpected error occurred. Please report this ID to the support team: **${id}**`,
   };
 };

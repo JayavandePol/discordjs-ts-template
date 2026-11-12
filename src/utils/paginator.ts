@@ -1,30 +1,36 @@
 import {
   ActionRowBuilder,
   ButtonBuilder,
+  type ButtonInteraction,
   ButtonStyle,
   ComponentType,
-  EmbedBuilder,
-  Message,
+  type EmbedBuilder,
+  type Message,
+  MessageFlags,
 } from "discord.js";
-import { RepliableInteraction } from "./error-handler.js";
+import { COLLECTOR_PREFIX } from "../types/Component.js";
+import type { RepliableInteraction } from "./error-handler.js";
 
 export type PaginatorOptions = {
-  // Duration in milliseconds before pagination buttons expire and disable (default: 60,000ms)
+  // Duration in milliseconds before the buttons are disabled (default: 60,000ms)
   timeout?: number;
 
   // Whether the pagination message is ephemeral (default: false)
   ephemeral?: boolean;
 
-  // Optional custom authorization filter (defaults to allowing only the user who ran the command)
+  // Who may press the buttons (default: only the user who ran the command)
   filter?: (userId: string) => boolean;
+
+  // Called when a button press fails, e.g. because the message was deleted
+  onError?: (error: unknown) => void;
 };
 
+type Action = "first" | "prev" | "next" | "last";
+const ACTIONS: Action[] = ["first", "prev", "next", "last"];
+
 /**
- * Creates and manages an interactive button paginator for multi-page embed responses.
- *
- * @param interaction The Discord interaction initiating the pagination
- * @param pages Array of EmbedBuilder instances to navigate through
- * @param options Paginator customization options
+ * Sends an embed with ⏮️ ◀️ 1/N ▶️ ⏭️ buttons and handles them with a message collector.
+ * The buttons use a "collector:" customId so the global interaction router ignores them.
  */
 export const paginate = async (
   interaction: RepliableInteraction,
@@ -34,151 +40,78 @@ export const paginate = async (
   if (pages.length === 0) return;
 
   const { timeout = 60_000, ephemeral = false } = options;
+  const flags = ephemeral ? MessageFlags.Ephemeral : undefined;
+  const idPrefix = `${COLLECTOR_PREFIX}paginator:${interaction.id}:`;
+  const pageAt = (index: number) => pages[index] ?? pages[0]!;
 
-  // If there is only one page, send directly without navigation action rows
+  const createRow = (pageIndex: number, disabled = false) =>
+    new ActionRowBuilder<ButtonBuilder>().addComponents(
+      button(`${idPrefix}first`, "⏮️", ButtonStyle.Secondary, disabled || pageIndex === 0),
+      button(`${idPrefix}prev`, "◀️", ButtonStyle.Primary, disabled || pageIndex === 0),
+      new ButtonBuilder()
+        .setCustomId(`${idPrefix}indicator`)
+        .setLabel(`${pageIndex + 1} / ${pages.length}`)
+        .setStyle(ButtonStyle.Secondary)
+        .setDisabled(true),
+      button(`${idPrefix}next`, "▶️", ButtonStyle.Primary, disabled || pageIndex === pages.length - 1),
+      button(`${idPrefix}last`, "⏭️", ButtonStyle.Secondary, disabled || pageIndex === pages.length - 1)
+    );
+
+  const send = async (payload: { embeds: EmbedBuilder[]; components: ActionRowBuilder<ButtonBuilder>[] }) => {
+    if (interaction.deferred || interaction.replied) return interaction.editReply(payload);
+    const response = await interaction.reply({ ...payload, flags, withResponse: true });
+    return response.resource?.message ?? interaction.fetchReply();
+  };
+
+  // A single page needs no buttons
   if (pages.length === 1) {
-    const singlePayload = { embeds: [pages[0]], components: [], ephemeral };
-    if (interaction.deferred || interaction.replied) {
-      await interaction.editReply(singlePayload);
-    } else {
-      await interaction.reply(singlePayload);
-    }
+    await send({ embeds: [pageAt(0)], components: [] });
     return;
   }
 
   let currentPage = 0;
+  const message: Message = await send({ embeds: [pageAt(0)], components: [createRow(0)] });
 
-  // Helper to generate navigation action row with updated enabled/disabled states
-  const createActionRow = (pageIndex: number): ActionRowBuilder<ButtonBuilder> => {
-    return new ActionRowBuilder<ButtonBuilder>().addComponents(
-      new ButtonBuilder()
-        .setCustomId("paginator:first")
-        .setEmoji("⏮️")
-        .setStyle(ButtonStyle.Secondary)
-        .setDisabled(pageIndex === 0),
-
-      new ButtonBuilder()
-        .setCustomId("paginator:prev")
-        .setEmoji("◀️")
-        .setStyle(ButtonStyle.Primary)
-        .setDisabled(pageIndex === 0),
-
-      new ButtonBuilder()
-        .setCustomId("paginator:indicator")
-        .setLabel(`${pageIndex + 1} / ${pages.length}`)
-        .setStyle(ButtonStyle.Secondary)
-        .setDisabled(true),
-
-      new ButtonBuilder()
-        .setCustomId("paginator:next")
-        .setEmoji("▶️")
-        .setStyle(ButtonStyle.Primary)
-        .setDisabled(pageIndex === pages.length - 1),
-
-      new ButtonBuilder()
-        .setCustomId("paginator:last")
-        .setEmoji("⏭️")
-        .setStyle(ButtonStyle.Secondary)
-        .setDisabled(pageIndex === pages.length - 1)
-    );
-  };
-
-  const initialPayload = {
-    embeds: [pages[currentPage]],
-    components: [createActionRow(currentPage)],
-    ephemeral,
-  };
-
-  // Send initial message
-  let responseMessage: Message;
-  if (interaction.deferred || interaction.replied) {
-    const res = await interaction.editReply(initialPayload);
-    responseMessage = res instanceof Message ? res : await interaction.fetchReply();
-  } else {
-    const res = await interaction.reply({ ...initialPayload, fetchReply: true });
-    responseMessage = res instanceof Message ? res : await interaction.fetchReply();
-  }
-
-  // Create button interaction collector
-  const collector = responseMessage.createMessageComponentCollector({
+  const collector = message.createMessageComponentCollector({
     componentType: ComponentType.Button,
     time: timeout,
+    filter: (i) => i.customId.startsWith(idPrefix),
   });
 
-  collector.on("collect", async (buttonInteraction) => {
-    // Enforce authorization filter (restrict interaction to the user who triggered the paginator)
-    const allowed = options.filter
-      ? options.filter(buttonInteraction.user.id)
-      : buttonInteraction.user.id === interaction.user.id;
+  const reportError = (error: unknown) => options.onError?.(error);
 
-    if (!allowed) {
-      await buttonInteraction.reply({
-        content: "You cannot control this pagination menu.",
-        ephemeral: true,
-      });
-      return;
-    }
+  // Collectors are plain EventEmitters: a rejected listener would become an unhandled rejection
+  collector.on("collect", (buttonInteraction: ButtonInteraction) => {
+    void (async () => {
+      const allowed = options.filter
+        ? options.filter(buttonInteraction.user.id)
+        : buttonInteraction.user.id === interaction.user.id;
 
-    switch (buttonInteraction.customId) {
-      case "paginator:first":
-        currentPage = 0;
-        break;
-      case "paginator:prev":
-        currentPage = Math.max(0, currentPage - 1);
-        break;
-      case "paginator:next":
-        currentPage = Math.min(pages.length - 1, currentPage + 1);
-        break;
-      case "paginator:last":
-        currentPage = pages.length - 1;
-        break;
-    }
+      if (!allowed) {
+        await buttonInteraction.reply({
+          content: "You cannot control this pagination menu.",
+          flags: MessageFlags.Ephemeral,
+        });
+        return;
+      }
 
-    // Update message with the newly selected page and fresh button states
-    await buttonInteraction.update({
-      embeds: [pages[currentPage]],
-      components: [createActionRow(currentPage)],
-    });
+      const action = buttonInteraction.customId.slice(idPrefix.length) as Action;
+      if (!ACTIONS.includes(action)) return;
+
+      if (action === "first") currentPage = 0;
+      if (action === "prev") currentPage = Math.max(0, currentPage - 1);
+      if (action === "next") currentPage = Math.min(pages.length - 1, currentPage + 1);
+      if (action === "last") currentPage = pages.length - 1;
+
+      await buttonInteraction.update({ embeds: [pageAt(currentPage)], components: [createRow(currentPage)] });
+    })().catch(reportError);
   });
 
-  // Disable all buttons when the collector times out
-  collector.on("end", async () => {
-    try {
-      const disabledRow = new ActionRowBuilder<ButtonBuilder>().addComponents(
-        new ButtonBuilder()
-          .setCustomId("paginator:first_disabled")
-          .setEmoji("⏮️")
-          .setStyle(ButtonStyle.Secondary)
-          .setDisabled(true),
-
-        new ButtonBuilder()
-          .setCustomId("paginator:prev_disabled")
-          .setEmoji("◀️")
-          .setStyle(ButtonStyle.Primary)
-          .setDisabled(true),
-
-        new ButtonBuilder()
-          .setCustomId("paginator:indicator_disabled")
-          .setLabel(`${currentPage + 1} / ${pages.length}`)
-          .setStyle(ButtonStyle.Secondary)
-          .setDisabled(true),
-
-        new ButtonBuilder()
-          .setCustomId("paginator:next_disabled")
-          .setEmoji("▶️")
-          .setStyle(ButtonStyle.Primary)
-          .setDisabled(true),
-
-        new ButtonBuilder()
-          .setCustomId("paginator:last_disabled")
-          .setEmoji("⏭️")
-          .setStyle(ButtonStyle.Secondary)
-          .setDisabled(true)
-      );
-
-      await interaction.editReply({ components: [disabledRow] });
-    } catch {
-      // Ignore errors if message was already deleted
-    }
+  // Disable the buttons once the collector times out
+  collector.on("end", () => {
+    interaction.editReply({ components: [createRow(currentPage, true)] }).catch(reportError);
   });
 };
+
+const button = (customId: string, emoji: string, style: ButtonStyle, disabled: boolean) =>
+  new ButtonBuilder().setCustomId(customId).setEmoji(emoji).setStyle(style).setDisabled(disabled);

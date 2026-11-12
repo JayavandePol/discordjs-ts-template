@@ -1,20 +1,17 @@
-// Metadata payload attached to error reports for contextual tracing
+/**
+ * Context stored with an error report. Deliberately holds no free-form user input:
+ * option values and modal fields can contain personal data, so only option names are kept.
+ */
 export type ErrorMeta = {
-  // Discord snowflake of the executing user
   userId?: string;
-
-  // Discord snowflake of the guild where the interaction occurred
   guildId?: string;
-
-  // Discord snowflake of the channel where the interaction occurred
   channelId?: string;
 
-  // Name of the slash command or custom ID of the interaction component
+  // Command name, or the customId for buttons, select menus and modals
   command?: string;
+  // "group subcommand" for slash commands that have them
+  subcommand?: string;
 
-  // Key-value map of user-supplied slash command or modal inputs
-  options?: Record<string, string | number | boolean>;
-
-  // Flexible additional key-value metadata
-  [key: string]: unknown;
+  // Names of the options the user filled in (never their values)
+  optionNames?: string[];
 };

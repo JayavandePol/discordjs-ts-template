@@ -3,28 +3,12 @@ import {
   ButtonBuilder,
   ButtonStyle,
   EmbedBuilder,
-  TextChannel,
-  ThreadChannel,
 } from "discord.js";
-import { BotContext } from "../types/Context.js";
-import { ErrorReport } from "./error-reporter.js";
-import { ErrorMeta } from "../types/ErrorMeta.js";
+import type { BotContext } from "../types/Context.js";
+import type { ErrorReport } from "./error-reporter.js";
+import type { ErrorMeta } from "../types/ErrorMeta.js";
 
-// Type guard to check if a Discord channel supports message sending
-const isSendableChannel = (
-  channel: unknown
-): channel is TextChannel | ThreadChannel => {
-  return (
-    !!channel &&
-    typeof channel === "object" &&
-    "isTextBased" in channel &&
-    typeof (channel as any).isTextBased === "function" &&
-    (channel as any).isTextBased() &&
-    "send" in channel
-  );
-};
-
-// Rate-limiting map for error notification spam protection: ErrorID -> { count, timestamp }
+// Spam protection for repeated errors: fingerprint (same bug) -> { count, timestamp }
 const throttleMap = new Map<string, { count: number; timestamp: number }>();
 const THROTTLE_LIMIT = 5;
 const THROTTLE_WINDOW_MS = 60 * 1000; // 60-second sliding window
@@ -41,7 +25,8 @@ export const notifyErrorLogChannel = async (
   if (!channelId) return;
 
   const now = Date.now();
-  const throttleRecord = throttleMap.get(params.report.id);
+  const key = params.report.fingerprint;
+  const throttleRecord = throttleMap.get(key);
 
   // Apply throttle check
   if (throttleRecord) {
@@ -49,29 +34,32 @@ export const notifyErrorLogChannel = async (
       throttleRecord.count++;
       if (throttleRecord.count > THROTTLE_LIMIT) {
         context.logger.warn(
-          `Throttled error log to Discord channel for ID ${params.report.id} (seen ${throttleRecord.count} times in 60s)`
+          `Throttled error log for fingerprint ${key} (seen ${throttleRecord.count} times in 60s)`
         );
         return; // Suppress notification to avoid channel spam
       }
     } else {
-      throttleMap.set(params.report.id, { count: 1, timestamp: now });
+      throttleMap.set(key, { count: 1, timestamp: now });
     }
   } else {
-    throttleMap.set(params.report.id, { count: 1, timestamp: now });
+    throttleMap.set(key, { count: 1, timestamp: now });
   }
 
   // Periodic throttle map cleanup
   if (Math.random() < 0.1) {
-    for (const [key, value] of throttleMap.entries()) {
+    for (const [entryKey, value] of throttleMap.entries()) {
       if (now - value.timestamp > THROTTLE_WINDOW_MS) {
-        throttleMap.delete(key);
+        throttleMap.delete(entryKey);
       }
     }
   }
 
   try {
     const channel = await context.client.channels.fetch(channelId);
-    if (!isSendableChannel(channel)) return;
+    if (!channel?.isSendable()) {
+      context.logger.warn("ERRORLOGCHANNEL_ID is not a channel the bot can send messages to", { channelId });
+      return;
+    }
 
     const embed = new EmbedBuilder()
       .setTitle("Bot Error Captured")

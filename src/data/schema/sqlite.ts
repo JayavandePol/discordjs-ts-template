@@ -1,40 +1,32 @@
-import { sqliteTable, text, integer } from "drizzle-orm/sqlite-core";
+import { index, integer, sqliteTable, text } from "drizzle-orm/sqlite-core";
+import type { ErrorMeta } from "../../types/ErrorMeta.js";
 
-// SQLite schema definition for the errors table
-export const sqliteErrors = sqliteTable("errors", {
-  // Unique 8-character error hash ID (Primary Key)
-  id: text("id").primaryKey(),
+/**
+ * One row per error occurrence. `id` is the random report ID shown to the user;
+ * `fingerprint` groups occurrences of the same bug.
+ */
+export const errorEvents = sqliteTable(
+  "error_events",
+  {
+    id: text("id").primaryKey(),
+    fingerprint: text("fingerprint").notNull(),
+    createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
 
-  // ISO timestamp when the error occurred
-  timestamp: text("timestamp").notNull(),
+    // Where it happened, e.g. "command:ping" or "component:error:info:abc"
+    context: text("context").notNull(),
 
-  // Severity classification (default: "error")
-  severity: text("severity").notNull().default("error"),
+    name: text("name"),
+    message: text("message").notNull(),
+    stack: text("stack"),
 
-  // Context label (e.g. "command:ping", "event:ready")
-  context: text("context").notNull(),
-
-  // Error class name (e.g. "TypeError", "DiscordAPIError")
-  name: text("name"),
-
-  // Error message string
-  message: text("message").notNull(),
-
-  // Sanitized stack trace
-  stack: text("stack"),
-
-  // Discord Guild snowflake (if applicable)
-  guildId: text("guild_id"),
-
-  // Discord User snowflake (if applicable)
-  userId: text("user_id"),
-
-  // Command name or custom ID
-  command: text("command"),
-
-  // Structured metadata snapshot (options, fields) parsed as JSON
-  meta: text("meta", { mode: "json" }),
-
-  // Number of times this exact error signature has been observed
-  occurrences: integer("occurrences").notNull().default(1),
-});
+    guildId: text("guild_id"),
+    userId: text("user_id"),
+    channelId: text("channel_id"),
+    command: text("command"),
+    meta: text("meta", { mode: "json" }).$type<ErrorMeta>(),
+  },
+  (table) => [
+    index("error_events_fingerprint_idx").on(table.fingerprint),
+    index("error_events_created_at_idx").on(table.createdAt),
+  ]
+);

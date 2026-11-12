@@ -1,214 +1,166 @@
 import {
   Events,
-  Interaction,
-  PermissionsBitField,
-  GuildMember,
+  type Interaction,
+  MessageFlags,
+  type ChatInputCommandInteraction,
+  type MessageContextMenuCommandInteraction,
+  type UserContextMenuCommandInteraction,
 } from "discord.js";
-import { Event } from "../types/Event.js";
-import { Config } from "../config/config.js";
-import { ExecutableInteraction } from "../types/Command.js";
+import { defineEvent } from "../types/Event.js";
+import { checkAccess, type AccessTarget } from "../core/access.js";
+import { type Command, commandKey } from "../types/Command.js";
+import type { BotContext } from "../types/Context.js";
 import { handleInteractionError } from "../utils/error-handler.js";
+import { type RepliableInteraction, sendEphemeral } from "../utils/reply.js";
 
-/**
- * Checks if an interaction user has developer privileges based on:
- * 1. Matching a User ID in `config.devUserIds` (works in Guilds and DMs)
- * 2. Or possessing a configured developer Role ID within the current guild
- */
-const isDeveloper = (
-  userId: string,
-  member: GuildMember | null,
-  config: Config
-): boolean => {
-  // Check direct user snowflake match
-  if (config.devUserIds.includes(userId)) {
-    return true;
-  }
+type CommandInteraction =
+  | ChatInputCommandInteraction
+  | UserContextMenuCommandInteraction
+  | MessageContextMenuCommandInteraction;
 
-  // Check role match if member cache is available in guild
-  if (config.devRoleId && member && member.roles.cache.has(config.devRoleId)) {
-    return true;
-  }
+const EXPIRED_COMPONENT = "This button or menu is no longer active.";
 
+// Runs the shared access check and tells the user when they are denied
+const ensureAccess = async (target: AccessTarget, interaction: RepliableInteraction, context: BotContext) => {
+  const result = checkAccess(target, interaction, context.config);
+  if (result.allowed) return true;
+
+  context.logger.warn("Access denied", {
+    user: interaction.user.id,
+    target: "commandName" in interaction ? interaction.commandName : "customId" in interaction ? interaction.customId : undefined,
+  });
+  await sendEphemeral(interaction, { content: result.reason });
   return false;
 };
 
-// Main interaction router handling Slash Commands, Context Menus, Autocomplete, Buttons, Select Menus, and Modals
-const event: Event<Events.InteractionCreate> = {
+// ------------------------------------------------------------------
+// Components: buttons, select menus and modals
+// ------------------------------------------------------------------
+const handleComponent = async (interaction: Interaction, context: BotContext) => {
+  const { components, logger } = context;
+
+  if (interaction.isButton()) {
+    if (components.isCollectorOwned(interaction.customId)) return; // handled by a message collector
+    const handler = components.findButton(interaction.customId);
+    if (!handler) {
+      logger.debug("No handler for button", { customId: interaction.customId });
+      await sendEphemeral(interaction, { content: EXPIRED_COMPONENT });
+      return;
+    }
+    if (!(await ensureAccess(handler, interaction, context))) return;
+    await handler.execute(interaction, context);
+    return;
+  }
+
+  if (interaction.isAnySelectMenu()) {
+    if (components.isCollectorOwned(interaction.customId)) return;
+    const handler = components.findSelectMenu(interaction.customId);
+    if (!handler) {
+      await sendEphemeral(interaction, { content: EXPIRED_COMPONENT });
+      return;
+    }
+    if (!(await ensureAccess(handler, interaction, context))) return;
+    await handler.execute(interaction, context);
+    return;
+  }
+
+  if (interaction.isModalSubmit()) {
+    const handler = components.findModal(interaction.customId);
+    if (!handler) {
+      await sendEphemeral(interaction, { content: EXPIRED_COMPONENT });
+      return;
+    }
+    if (!(await ensureAccess(handler, interaction, context))) return;
+    await handler.execute(interaction, context);
+  }
+};
+
+// ------------------------------------------------------------------
+// Slash commands and context menus
+// ------------------------------------------------------------------
+const runCommand = async (command: Command, interaction: CommandInteraction, context: BotContext) => {
+  if (command.kind === "slash" && interaction.isChatInputCommand()) return command.execute(interaction, context);
+  if (command.kind === "user" && interaction.isUserContextMenuCommand()) return command.execute(interaction, context);
+  if (command.kind === "message" && interaction.isMessageContextMenuCommand()) return command.execute(interaction, context);
+  throw new Error(`Command "${command.data.name}" (${command.kind}) received a mismatched interaction.`);
+};
+
+const handleCommand = async (interaction: CommandInteraction, context: BotContext) => {
+  const { commands, logger, cooldowns } = context;
+  const kind = interaction.isChatInputCommand() ? "slash" : interaction.isUserContextMenuCommand() ? "user" : "message";
+  const command = commands.get(commandKey(kind, interaction.commandName));
+
+  if (!command) {
+    logger.warn("Received unknown command", { command: interaction.commandName, kind });
+    await sendEphemeral(interaction, { content: "Command not recognized." });
+    return;
+  }
+
+  if (!(await ensureAccess(command, interaction, context))) return;
+
+  if (command.cooldown) {
+    const remaining = cooldowns.check(command.data.name, interaction.user.id, command.cooldown);
+    if (remaining !== null) {
+      await sendEphemeral(interaction, {
+        content: `⏳ Please wait **${remaining}s** before using \`${command.data.name}\` again.`,
+      });
+      return;
+    }
+  }
+
+  // Deferring buys 15 minutes instead of 3 seconds for the first response
+  if (command.defer) {
+    await interaction.deferReply(command.defer === "ephemeral" ? { flags: MessageFlags.Ephemeral } : {});
+  }
+
+  await runCommand(command, interaction, context);
+};
+
+/**
+ * Routes every interaction. The whole route runs inside one error boundary: any failure,
+ * including a failed reply or deferReply (e.g. 10062 Unknown interaction), ends up in
+ * handleInteractionError instead of escaping the listener.
+ */
+const event = defineEvent({
   name: Events.InteractionCreate,
-  async execute(interaction: Interaction, context) {
-    const { commands, components, logger, config, cooldowns } = context;
-
-    // ------------------------------------------------------------------
-    // 1. Button Interactions (Routed via ComponentRegistry)
-    // ------------------------------------------------------------------
-    if (interaction.isButton()) {
-      const handler = components.findButton(interaction.customId);
-      if (handler) {
-        try {
-          await handler.execute(interaction, context);
-        } catch (error) {
-          await handleInteractionError(
-            interaction,
-            context,
-            error,
-            `button:${interaction.customId}`
-          );
-        }
-      }
-      return;
-    }
-
-    // ------------------------------------------------------------------
-    // 2. Select Menu Interactions (String, User, Role, Channel, Mentionable)
-    // ------------------------------------------------------------------
-    if (interaction.isAnySelectMenu()) {
-      const handler = components.findSelectMenu(interaction.customId);
-      if (handler) {
-        try {
-          await handler.execute(interaction, context);
-        } catch (error) {
-          await handleInteractionError(
-            interaction,
-            context,
-            error,
-            `selectMenu:${interaction.customId}`
-          );
-        }
-      }
-      return;
-    }
-
-    // ------------------------------------------------------------------
-    // 3. Modal Submission Interactions
-    // ------------------------------------------------------------------
-    if (interaction.isModalSubmit()) {
-      const handler = components.findModal(interaction.customId);
-      if (handler) {
-        try {
-          await handler.execute(interaction, context);
-        } catch (error) {
-          await handleInteractionError(
-            interaction,
-            context,
-            error,
-            `modal:${interaction.customId}`
-          );
-        }
-      }
-      return;
-    }
-
-    // ------------------------------------------------------------------
-    // 4. Autocomplete Interactions
-    // ------------------------------------------------------------------
+  async execute(interaction, context) {
     if (interaction.isAutocomplete()) {
-      const command = commands.get(interaction.commandName);
-      if (!command || !command.autocomplete) return;
+      const command = context.commands.get(commandKey("slash", interaction.commandName));
+      if (command?.kind !== "slash" || !command.autocomplete) return;
+
+      // Autocomplete can leak data (e.g. error IDs), so it gets the same access check as the command
+      if (!checkAccess(command, interaction, context.config).allowed) {
+        await interaction.respond([]).catch(() => undefined);
+        return;
+      }
 
       try {
         await command.autocomplete(interaction, context);
       } catch (error) {
-        logger.error("Autocomplete handler error", {
-          command: interaction.commandName,
-          error,
-        });
+        context.logger.error("Autocomplete handler failed", { command: interaction.commandName, err: error });
+        if (!interaction.responded) await interaction.respond([]).catch(() => undefined);
       }
       return;
     }
 
-    // ------------------------------------------------------------------
-    // 5. Application Commands (Slash Commands & Context Menus)
-    // ------------------------------------------------------------------
-    if (interaction.isChatInputCommand() || interaction.isContextMenuCommand()) {
-      const command = commands.get(interaction.commandName);
-      if (!command) {
-        logger.warn("Received unknown command", { command: interaction.commandName });
-        await interaction.reply({ content: "Command not recognized.", ephemeral: true });
-        return;
+    if (!interaction.isRepliable()) return;
+
+    const label = interaction.isCommand()
+      ? `command:${interaction.commandName}`
+      : "customId" in interaction
+        ? `component:${interaction.customId}`
+        : "interaction";
+
+    try {
+      if (interaction.isChatInputCommand() || interaction.isContextMenuCommand()) {
+        await handleCommand(interaction, context);
+      } else {
+        await handleComponent(interaction, context);
       }
-
-      // Access Check: Developer-Only commands
-      if (command.access === "developer" || command.devOnly) {
-        const member = interaction.inCachedGuild() ? interaction.member : null;
-        const authorized = isDeveloper(interaction.user.id, member, config);
-
-        if (!authorized) {
-          logger.warn("Unauthorized developer command attempt", {
-            user: interaction.user.id,
-            command: command.data.name,
-          });
-          await interaction.reply({
-            content: "This command is restricted to the bot developer.",
-            ephemeral: true,
-          });
-          return;
-        }
-      }
-
-      // Access Check: Administrator-Only commands
-      if (command.access === "admin") {
-        if (!interaction.inCachedGuild()) {
-          await interaction.reply({
-            content: "Admin commands can only be used inside a server.",
-            ephemeral: true,
-          });
-          return;
-        }
-
-        const hasAdmin = interaction.memberPermissions?.has(
-          PermissionsBitField.Flags.Administrator
-        );
-        if (!hasAdmin) {
-          logger.warn("Unauthorized admin command attempt", {
-            user: interaction.user.id,
-            command: command.data.name,
-          });
-          await interaction.reply({
-            content: "You need Administrator permissions to use this command.",
-            ephemeral: true,
-          });
-          return;
-        }
-      }
-
-      // Cooldown verification (rate-limiting)
-      if (command.cooldown) {
-        const remaining = cooldowns.check(
-          command.data.name,
-          interaction.user.id,
-          command.cooldown
-        );
-        if (remaining !== null) {
-          await interaction.reply({
-            content: `⏳ Please wait **${remaining}s** before using the \`${command.data.name}\` command again.`,
-            ephemeral: true,
-          });
-          return;
-        }
-      }
-
-      // Automatic reply deferral helper (prevents 3s interaction timeouts)
-      if (command.defer) {
-        const ephemeral = command.defer === "ephemeral";
-        await interaction.deferReply({ ephemeral });
-      }
-
-      // Command execution with central error capture
-      try {
-        await (command.execute as (interaction: ExecutableInteraction, context: any) => Promise<void>)(
-          interaction,
-          context
-        );
-      } catch (error) {
-        await handleInteractionError(
-          interaction,
-          context,
-          error,
-          `command:${interaction.commandName}`
-        );
-      }
+    } catch (error) {
+      await handleInteractionError(interaction, context, error, label);
     }
   },
-};
+});
 
 export default event;

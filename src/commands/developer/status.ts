@@ -1,23 +1,14 @@
 import { EmbedBuilder, SlashCommandBuilder } from "discord.js";
-import { Command } from "../../types/Command.js";
-import { detectDialect } from "../../data/db.js";
+import { defineSlashCommand } from "../../types/Command.js";
+import { describeDatabase } from "../../data/db.js";
+import type { Config } from "../../config/config.js";
 
-// Helper function to summarize database connection state for diagnostics
-const summarizeDatabase = (config: {
-  enabled: boolean;
-  url?: string;
-  storage?: string;
-  logging: boolean;
-}) => {
-  if (!config.enabled) return "Disabled";
-  const dialect = detectDialect({ database: config } as any);
-  if (dialect === "postgres") return "Enabled (Drizzle ORM @ PostgreSQL)";
-  if (dialect === "mysql") return "Enabled (Drizzle ORM @ MySQL/MariaDB)";
-  return `Enabled (Drizzle ORM @ SQLite: ${config.storage ?? "./data/database.sqlite"})`;
-};
+// Summarizes the configured database for diagnostics
+const summarizeDatabase = (database: Config["database"]) =>
+  database.enabled ? `Enabled (${describeDatabase(database.target.dialect)})` : "Disabled";
 
 // Developer status command to inspect environment, memory, latency, and guild counts
-const command: Command = {
+const command = defineSlashCommand({
   data: new SlashCommandBuilder()
     .setName("status")
     .setDescription("Display internal bot diagnostics, system stats, and connection state."),
@@ -38,7 +29,7 @@ const command: Command = {
       .setTitle("Bot System Diagnostics")
       .setColor(0x5865f2)
       .addFields(
-        { name: "Bot Account", value: `${client.user?.tag} (\`${client.user?.id}\`)`, inline: true },
+        { name: "Bot Account", value: `${client.user?.username} (\`${client.user?.id}\`)`, inline: true },
         { name: "Gateway Latency", value: `\`${Math.round(ws.ping)} ms\``, inline: true },
         { name: "RAM (Heap Used)", value: `\`${ramMb} MB\``, inline: true },
         { name: "Uptime", value: `<t:${Math.floor(Date.now() / 1000) - uptimeSeconds}:R>`, inline: true },
@@ -52,6 +43,6 @@ const command: Command = {
 
     await interaction.editReply({ embeds: [embed] });
   },
-};
+});
 
 export default command;

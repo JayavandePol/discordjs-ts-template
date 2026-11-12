@@ -1,4 +1,4 @@
-import { EmbedBuilder, ColorResolvable } from "discord.js";
+import { EmbedBuilder, type ColorResolvable } from "discord.js";
 
 // Standard brand and status color palette
 export const EmbedColors = {
