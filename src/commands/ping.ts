@@ -1,4 +1,4 @@
-import { MessageFlags, SlashCommandBuilder } from "discord.js";
+import { SlashCommandBuilder } from "discord.js";
 import { defineSlashCommand } from "../types/Command.js";
 import { createSuccessEmbed } from "../utils/embeds.js";
 

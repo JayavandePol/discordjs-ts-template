@@ -1,9 +1,9 @@
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { Client } from "discord.js";
-import { Event } from "../types/Event.js";
-import { BotContext } from "../types/Context.js";
-import { Logger } from "../utils/logger.js";
+import type { Client } from "discord.js";
+import type { Event } from "../types/Event.js";
+import type { BotContext } from "../types/Context.js";
+import type { Logger } from "../utils/logger.js";
 import { isObject, loadModules } from "./module-loader.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -25,12 +25,10 @@ export const registerEvents = async (
     const execute = event.execute as (...args: unknown[]) => Promise<void>;
     // discord.js re-emits rejected listeners as a client "error" event; catching here keeps the
     // event name in the log and guarantees a failing listener never reaches the process handlers
-    const handler = async (...args: unknown[]) => {
-      try {
-        await execute(...args, context);
-      } catch (error) {
-        logger.error("Event handler failed", { event: event.name, file, err: error });
-      }
+    const handler = (...args: unknown[]) => {
+      execute(...args, context).catch((error: unknown) =>
+        logger.error("Event handler failed", { event: event.name, file, err: error })
+      );
     };
 
     if (event.once) client.once(event.name, handler);

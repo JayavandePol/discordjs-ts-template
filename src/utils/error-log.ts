@@ -3,26 +3,10 @@ import {
   ButtonBuilder,
   ButtonStyle,
   EmbedBuilder,
-  TextChannel,
-  ThreadChannel,
 } from "discord.js";
-import { BotContext } from "../types/Context.js";
-import { ErrorReport } from "./error-reporter.js";
-import { ErrorMeta } from "../types/ErrorMeta.js";
-
-// Type guard to check if a Discord channel supports message sending
-const isSendableChannel = (
-  channel: unknown
-): channel is TextChannel | ThreadChannel => {
-  return (
-    !!channel &&
-    typeof channel === "object" &&
-    "isTextBased" in channel &&
-    typeof (channel as any).isTextBased === "function" &&
-    (channel as any).isTextBased() &&
-    "send" in channel
-  );
-};
+import type { BotContext } from "../types/Context.js";
+import type { ErrorReport } from "./error-reporter.js";
+import type { ErrorMeta } from "../types/ErrorMeta.js";
 
 // Spam protection for repeated errors: fingerprint (same bug) -> { count, timestamp }
 const throttleMap = new Map<string, { count: number; timestamp: number }>();
@@ -72,7 +56,10 @@ export const notifyErrorLogChannel = async (
 
   try {
     const channel = await context.client.channels.fetch(channelId);
-    if (!isSendableChannel(channel)) return;
+    if (!channel?.isSendable()) {
+      context.logger.warn("ERRORLOGCHANNEL_ID is not a channel the bot can send messages to", { channelId });
+      return;
+    }
 
     const embed = new EmbedBuilder()
       .setTitle("Bot Error Captured")

@@ -1,6 +1,6 @@
 import {
   Events,
-  Interaction,
+  type Interaction,
   MessageFlags,
   type ChatInputCommandInteraction,
   type MessageContextMenuCommandInteraction,
@@ -8,10 +8,10 @@ import {
 } from "discord.js";
 import { defineEvent } from "../types/Event.js";
 import { checkAccess, type AccessTarget } from "../core/access.js";
-import { Command, commandKey } from "../types/Command.js";
-import { BotContext } from "../types/Context.js";
+import { type Command, commandKey } from "../types/Command.js";
+import type { BotContext } from "../types/Context.js";
 import { handleInteractionError } from "../utils/error-handler.js";
-import { RepliableInteraction, sendEphemeral } from "../utils/reply.js";
+import { type RepliableInteraction, sendEphemeral } from "../utils/reply.js";
 
 type CommandInteraction =
   | ChatInputCommandInteraction

@@ -1,7 +1,7 @@
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { Command, CommandKind, commandKey } from "../types/Command.js";
-import { Logger } from "../utils/logger.js";
+import { type Command, type CommandKind, commandKey } from "../types/Command.js";
+import type { Logger } from "../utils/logger.js";
 import { resolveAccess } from "./access.js";
 import { isObject, loadModules } from "./module-loader.js";
 

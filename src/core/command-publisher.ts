@@ -1,7 +1,7 @@
 import { REST, Routes, type RESTPostAPIApplicationCommandsJSONBody } from "discord.js";
-import { Command } from "../types/Command.js";
-import { Config } from "../config/config.js";
-import { Logger } from "../utils/logger.js";
+import type { Command } from "../types/Command.js";
+import type { Config } from "../config/config.js";
+import type { Logger } from "../utils/logger.js";
 import { adminPermissions } from "./access.js";
 
 export type RegistrationScope = "global" | "guild";

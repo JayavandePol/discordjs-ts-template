@@ -1,11 +1,11 @@
 import {
   ActionRowBuilder,
   ButtonBuilder,
-  ButtonInteraction,
+  type ButtonInteraction,
   ButtonStyle,
   ComponentType,
-  EmbedBuilder,
-  Message,
+  type EmbedBuilder,
+  type Message,
   MessageFlags,
 } from "discord.js";
 import { COLLECTOR_PREFIX } from "../types/Component.js";

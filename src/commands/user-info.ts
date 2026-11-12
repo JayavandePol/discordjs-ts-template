@@ -1,7 +1,6 @@
 import {
   ContextMenuCommandBuilder,
   ApplicationCommandType,
-  UserContextMenuCommandInteraction,
   EmbedBuilder,
 } from "discord.js";
 import { defineUserCommand } from "../types/Command.js";

@@ -84,7 +84,9 @@ export const loadConfig = (env: NodeJS.ProcessEnv = process.env): Config => {
   try {
     target = resolveDatabase(values.DATABASE_URL);
   } catch (error) {
-    throw new Error(`\n[Config Error] Invalid environment configuration:\n  - DATABASE_URL: ${(error as Error).message}\n`);
+    throw new Error(`\n[Config Error] Invalid environment configuration:\n  - DATABASE_URL: ${(error as Error).message}\n`, {
+      cause: error,
+    });
   }
 
   return {

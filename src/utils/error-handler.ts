@@ -1,17 +1,17 @@
 import {
   ActionRowBuilder,
   ApplicationCommandOptionType,
-  CommandInteractionOption,
+  type CommandInteractionOption,
   ButtonBuilder,
   ButtonStyle,
   EmbedBuilder,
 } from "discord.js";
-import { BotContext } from "../types/Context.js";
-import { ErrorMeta } from "../types/ErrorMeta.js";
+import type { BotContext } from "../types/Context.js";
+import type { ErrorMeta } from "../types/ErrorMeta.js";
 import { captureError } from "./error-reporter.js";
 import { notifyErrorLogChannel } from "./error-log.js";
 import { EmbedColors } from "./embeds.js";
-import { RepliableInteraction, sendEphemeral } from "./reply.js";
+import { type RepliableInteraction, sendEphemeral } from "./reply.js";
 import { UserError } from "./user-error.js";
 
 export type { RepliableInteraction } from "./reply.js";

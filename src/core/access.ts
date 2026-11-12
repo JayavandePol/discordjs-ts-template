@@ -1,4 +1,4 @@
-import { BaseInteraction, PermissionFlagsBits, PermissionsBitField } from "discord.js";
+import { type BaseInteraction, PermissionFlagsBits, PermissionsBitField } from "discord.js";
 import type { Config } from "../config/config.js";
 import type { AccessLevel } from "../types/Command.js";
 

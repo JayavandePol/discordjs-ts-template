@@ -1,12 +1,12 @@
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import {
-  ButtonHandler,
+  type ButtonHandler,
   COLLECTOR_PREFIX,
-  ModalHandler,
-  SelectMenuHandler,
+  type ModalHandler,
+  type SelectMenuHandler,
 } from "../types/Component.js";
-import { Logger } from "../utils/logger.js";
+import type { Logger } from "../utils/logger.js";
 import { resolveAccess } from "./access.js";
 import { isObject, loadModules } from "./module-loader.js";
 

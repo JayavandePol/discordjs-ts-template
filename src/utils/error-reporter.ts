@@ -1,7 +1,7 @@
-import { Logger } from "./logger.js";
+import type { Logger } from "./logger.js";
 import { cleanStackTrace, errorFingerprint, generateReportId } from "./id.js";
 import type { ErrorStore } from "../data/error-store.js";
-import { ErrorMeta } from "../types/ErrorMeta.js";
+import type { ErrorMeta } from "../types/ErrorMeta.js";
 
 export type ErrorReport = {
   // Random per-occurrence ID shown to the user

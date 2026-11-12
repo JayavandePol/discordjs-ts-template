@@ -1,8 +1,8 @@
 import {
-  CommandInteraction,
-  MessageComponentInteraction,
+  type CommandInteraction,
+  type MessageComponentInteraction,
   MessageFlags,
-  ModalSubmitInteraction,
+  type ModalSubmitInteraction,
   type ActionRowBuilder,
   type ButtonBuilder,
   type EmbedBuilder,
